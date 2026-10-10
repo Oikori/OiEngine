@@ -1,0 +1,45 @@
+{
+  "version": 10,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "vendor": {
+        "jetbrains.com/clion": {
+          "toolchain": "MinGW"
+        }
+      },
+      "generator": "Ninja"
+    },
+    {
+      "name": "mingw-debug",
+      "inherits": "base",
+      "binaryDir": "./build/cmake-build-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "mingw-release",
+      "inherits": "base",
+      "binaryDir": "./build/cmake-build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-debug",
+      "hidden": true,
+      "configurePreset": "mingw-debug",
+      "targets": []
+    },
+    {
+      "name": "build-release",
+      "hidden": true,
+      "configurePreset": "mingw-release",
+      "targets": []
+    }
+  ]
+}
