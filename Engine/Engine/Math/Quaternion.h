@@ -3,8 +3,10 @@
 #include "Engine/Core/Base.h"
 
 namespace OiEngine::Math {
+    // 注意：模板 struct 不加 OI_API——头文件内实例化即可；若标为 dllimport，
+    // 静态成员（identity 等）在 DLL 客户端会因未导出而链接失败
     template<typename T>
-    struct OI_API TQuaternion {
+    struct TQuaternion {
         constexpr explicit TQuaternion(T w = 1, T x = 0, T y = 0, T z = 0);
         constexpr explicit TQuaternion(T (&arr)[4]);
         constexpr TQuaternion(const TQuaternion& q);
@@ -20,14 +22,16 @@ namespace OiEngine::Math {
         constexpr T *Data();
         constexpr const T *Data() const;
 
-        constexpr static TQuaternion zero = TQuaternion(0, 0, 0, 0);
-        constexpr static TQuaternion identity = TQuaternion();
+        static const TQuaternion identity;
 
         union {
             struct { T w, x, y, z; };
             struct { T r, i, j, k; };
         };
     };
+
+    template<typename T>
+    const TQuaternion<T> TQuaternion<T>::identity = TQuaternion();
 
     template<typename T>
     constexpr TQuaternion<T>::TQuaternion(T w, T x, T y, T z): w(w), x(x), y(y), z(z) {}

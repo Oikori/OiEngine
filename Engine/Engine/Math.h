@@ -7,3 +7,6 @@
 #include "Math/Matrix4x4.h"
 #include "Math/Random.h"
 #include "Math/UUID.h"
+#include "Math/VectorGeometric.h"
+#include "Math/MatrixGeometric.h"
+#include "Math/QuaternionGeometric.h"
