@@ -3,7 +3,7 @@
 #include "RendererAPI.h"
 
 namespace OiEngine {
-	class RenderCommand {
+	class OI_API RenderCommand {
 	public:
 		static void Init()
 		{

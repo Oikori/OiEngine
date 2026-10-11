@@ -5,7 +5,7 @@
 #include "Camera.h"
 
 namespace OiEngine {
-	class Renderer {
+	class OI_API Renderer {
 	public:
 		static void Init();
 		static void Shutdown();

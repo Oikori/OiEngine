@@ -3,7 +3,7 @@
 #include "Engine/Math.h"
 
 namespace OiEngine {
-	class Camera {
+	class OI_API Camera {
 	public:
 		virtual ~Camera() = default;
 
