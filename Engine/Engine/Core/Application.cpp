@@ -9,6 +9,10 @@
 namespace OiEngine {
 	Application::~Application()
 	{
+	    for (Layer* layer : m_layers) {
+	        layer->OnDetach();
+	        delete layer;
+	    }
 		Renderer::Shutdown();
 	}
 
