@@ -46,4 +46,10 @@ private:
     uint32_t m_orbitVertexCount = 0;
     std::vector<CelestialBody> m_planets;
     SolarSystemCamera m_camera;
+
+    // UI 调试状态
+    float m_timeScale = 1.0f;
+    bool m_paused = false;
+    float m_simulationTime = 0.0f;
+    bool m_showDemoWindow = false;
 };

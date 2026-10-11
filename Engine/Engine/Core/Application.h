@@ -6,10 +6,13 @@
 #include "Base.h"
 #include "Window.h"
 #include "Layer.h"
+#include "LayerStack.h"
 #include "Engine/Events/Event.h"
 #include "Engine/Events/ApplicationEvent.h"
 
 namespace OiEngine {
+    class ImGuiLayer;  // UI 调试层（引擎内置 overlay）
+
     struct ApplicationCommandLineArgs {
         int count = 0;
         char** args = nullptr;
@@ -35,6 +38,7 @@ namespace OiEngine {
         void OnEvent(Event& e);
 
         void PushLayer(Layer* layer);
+        void PushOverlay(Layer* overlay);
 
         Window& GetWindow() const { return *m_window; }
 
@@ -60,7 +64,8 @@ namespace OiEngine {
         Scope<Window> m_window;
         bool m_running = true;
         bool m_minimized = false;
-        std::vector<Layer*> m_layers;
+        LayerStack m_layerStack;
+        ImGuiLayer* m_imguiLayer = nullptr;  // 由 m_layerStack 持有，随 Application 析构统一释放
 
         std::vector<std::function<void()>> m_MainThreadQueue;
         std::mutex m_MainThreadQueueMutex;

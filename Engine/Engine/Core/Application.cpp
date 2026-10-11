@@ -5,11 +5,12 @@
 
 #include "Timer.h"
 #include "Engine/Renderer/Renderer.h"
+#include "Engine/UI/ImGuiLayer.h"
 
 namespace OiEngine {
 	Application::~Application()
 	{
-	    for (Layer* layer : m_layers) {
+	    for (Layer* layer : m_layerStack) {
 	        layer->OnDetach();
 	        delete layer;
 	    }
@@ -27,12 +28,22 @@ namespace OiEngine {
 	    m_window->SetEventCallback(OI_BIND_EVENT_FN(Application::OnEvent));
 
 	    Renderer::Init();
+
+	    // UI 调试层：作为 overlay 恒居栈顶，业务层可直接用 ImGui:: API 绘制调试界面
+	    m_imguiLayer = new ImGuiLayer();
+	    PushOverlay(m_imguiLayer);
 	}
 
 	void Application::PushLayer(Layer* layer)
 	{
-		m_layers.emplace_back(layer);
+		m_layerStack.PushLayer(layer);
 		layer->OnAttach();
+	}
+
+	void Application::PushOverlay(Layer* overlay)
+	{
+		m_layerStack.PushOverlay(overlay);
+		overlay->OnAttach();
 	}
 
 	void Application::Close()
@@ -59,7 +70,7 @@ namespace OiEngine {
 		dispatcher.Dispatch<WindowCloseEvent>(OI_BIND_EVENT_FN(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(OI_BIND_EVENT_FN(Application::OnWindowResize));
 
-		for (auto it = m_layers.rbegin(); it != m_layers.rend(); ++it) {
+		for (auto it = m_layerStack.rbegin(); it != m_layerStack.rend(); ++it) {
 			if (e.handled) {
 				break;
 			}
@@ -74,10 +85,17 @@ namespace OiEngine {
 			ExecuteMainThreadQueue();
 
 			if (!m_minimized) {
-				for (Layer* layer : m_layers)
+				for (Layer* layer : m_layerStack)
 					layer->OnUpdate();
+
+				// UI 在所有场景之后、SwapBuffers 之前绘制
+				m_imguiLayer->Begin();
+				for (Layer* layer : m_layerStack)
+					layer->OnImGuiRender();
+				m_imguiLayer->End();
 			}
 
+		    Timer::Update();
 			m_window->OnUpdate();
 		}
 	}

@@ -1,6 +1,7 @@
 #include "SolarSystem.h"
 
 #include <cmath>
+#include <imgui.h>
 #include <cstdint>
 #include <iostream>
 #include <utility>
@@ -375,7 +376,12 @@ void SolarSystemLayer::OnUpdate()
 {
     RenderCommand::Clear();
 
-    const float elapsed = Timer::GetTimeSinceStart();
+    // 时间推进受 UI 控制（暂停 / 倍速），不直接依赖全局启动时间
+    if (!m_paused) {
+        m_simulationTime += Timer::GetDeltaTime() * m_timeScale;
+    }
+
+    const float elapsed = m_simulationTime;
 
     // 按公转角速度更新行星位置（XZ 平面上的圆周运动）
     for (auto& planet : m_planets) {
@@ -414,7 +420,29 @@ void SolarSystemLayer::OnUpdate()
     Renderer::EndScene();
 }
 
-void SolarSystemLayer::OnImGuiRender() {}
+void SolarSystemLayer::OnImGuiRender()
+{
+    ImGui::Begin("Solar System");
+
+    const ImGuiIO& io = ImGui::GetIO();
+    ImGui::Text("FPS: %.1f (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+    ImGui::Text("Simulation time: %.1f s (%s)", m_simulationTime, m_paused ? "paused" : "running");
+
+    ImGui::Separator();
+
+    ImGui::SliderFloat("Time scale", &m_timeScale, 0.0f, 5.0f, "%.2fx");
+    if (ImGui::Button(m_paused ? "Resume" : "Pause")) {
+        m_paused = !m_paused;
+    }
+
+    ImGui::Separator();
+    ImGui::Checkbox("Show ImGui demo window", &m_showDemoWindow);
+    ImGui::End();
+
+    if (m_showDemoWindow) {
+        ImGui::ShowDemoWindow(&m_showDemoWindow);
+    }
+}
 
 void SolarSystemLayer::OnEvent(Event& event) {}
 

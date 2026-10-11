@@ -9,13 +9,14 @@
 ## 目录结构
 
 - `Engine/` — 库工程（include 根目录，见下）
-  - `Engine/Engine/Core/` — `Base.h`（OI_API / OI_ASSERT / Scope / Ref）、`Log.h`、Application、Layer、Window、Input、Timer
+  - `Engine/Engine/Core/` — `Base.h`（OI_API / OI_ASSERT / Scope / Ref）、`Log.h`、Application、Layer、LayerStack、Window、Input、Timer
   - `Engine/Engine/Events/` — 事件系统（Event、ApplicationEvent、KeyEvent、MouseEvent）
   - `Engine/Engine/Math/` — 数学库（当前迭代重点，见下文）；总入口是 `Engine/Engine/Math.h`
   - `Engine/Engine/Renderer/` — Renderer、Camera、Shader、Buffer、VertexArray、Framebuffer 等抽象
+  - `Engine/Engine/UI/` — `ImGuiLayer`（Dear ImGui 封装，作为 overlay 由 Application 内置）
   - `Engine/Platform/` — `OpenGL/`、`Windows/` 平台实现
 - `SandBox/` — demo 可执行程序
-- `vendor/` — glad、glfw、spdlog、stb_image（glfw/spdlog 登记为 git submodule）
+- `vendor/` — glad、glfw、spdlog、stb_image、imgui（glfw/spdlog/imgui 登记为 git submodule）
 - `test/` — 数学库独立验证用例（不参与 CMake，被 .gitignore 忽略），用法见 `test/README.md`
 - `output/`、`build/` — 构建产物，不入库
 
@@ -32,6 +33,8 @@ cmake --preset mingw-debug      # 或 mingw-release
 ```
 
 - 产物在 `output/`：`libEngine.dll`、`SandBox.exe`
+- 命令行直接运行 `output/SandBox.exe` 需要 MinGW 运行时 DLL 在 PATH 中（否则秒退无输出）：
+  `$env:PATH = "D:\Program Files\JetBrains\CLion 2025.2.1\bin\mingw\bin;$env:PATH"`；CLion 运行配置会自动处理
 - 编译器路径记录在 `build/cmake-build-debug/CMakeCache.txt`（当前为 CLion 自带 MinGW GCC 15）
 - shell 是 Windows PowerShell 5.1：不支持 `&&` 和三元 `?:`；含逗号的链接参数（如 `-Wl,--out-implib,...`）需加引号
 
@@ -44,6 +47,15 @@ cmake --preset mingw-debug      # 或 mingw-release
 ```powershell
 c++ -std=c++23 -Wall -Wextra -I Engine -o "$env:TEMP\m.exe" test/matrix_verify.cpp; & "$env:TEMP\m.exe"
 ```
+
+## UI（Dear ImGui）
+
+- 引擎内置 `ImGuiLayer`（overlay，`Application::Init` 自动创建）：业务层实现 `Layer::OnImGuiRender()` 后直接用 `ImGui::` API 绘制；渲染时机在场景之后、SwapBuffers 之前，最小化时跳过
+- 事件：overlay 逆序最先收到事件，UI 占用鼠标/键盘（`WantCaptureMouse/Keyboard`）时标记 `handled`，不再传入游戏层（有 1 帧延迟，正常）
+- SandBox 直接 `#include <imgui.h>` 即可：include 路径与 `IMGUI_API=dllimport` 经 Engine target 导出
+- dll 边界：imgui 源码以 OBJECT 库并入 `Engine.dll`，编译时 `IMGUI_API/IMGUI_IMPL_API=__declspec(dllexport)`；**必须用 `target_compile_options` 传 `-D`，不能用 `target_compile_definitions`（CMake 会拆解值中的括号，生成畸形的 `-D`）**
+- 版本为 docking 分支（tag `v1.92.9b-docking`）；升级：`git submodule update --remote vendor/imgui`
+- 中文界面需在 `ImGuiLayer::OnAttach` 里加载字体：`io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 18.0f, nullptr, io.Fonts->GetGlyphRangesChineseSimplifiedCommon())`（默认字体不含中文）
 
 ## 代码约定
 
@@ -77,7 +89,7 @@ c++ -std=c++23 -Wall -Wextra -I Engine -o "$env:TEMP\m.exe" test/matrix_verify.c
 ## Git / 其他
 
 - `.gitignore`：`.idea`、`output`、`test/*`；`build/` 由 CMake 生成的 .gitignore 覆盖
-- `vendor/glfw`、`vendor/spdlog` 是 submodule（工作区可能显示为未跟踪，不要整体 `git add`）；`glad`、`stb_image` 直接入库
+- `vendor/glfw`、`vendor/spdlog`、`vendor/imgui` 是 submodule（glfw/spdlog 工作区可能显示为未跟踪，不要整体 `git add`）；`glad`、`stb_image` 直接入库
 - 行尾为 LF，git 提示 "LF will be replaced by CRLF" 属正常
 
 ## 协作习惯
