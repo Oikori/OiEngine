@@ -1,5 +1,7 @@
 #include "ImGuiLayer.h"
 
+#include <filesystem>
+
 #include <GLFW/glfw3.h>
 
 #include <imgui.h>
@@ -12,6 +14,10 @@ namespace OiEngine {
     // 引擎要求 OpenGL 4.5 Core（见 OpenGLContext），GLSL 版本保持一致
     static const char* GLSL_VERSION = "#version 450";
 
+    // 中文界面：默认字体不含中文字形（显示为 ?），加载系统中文字体
+    static const char* CHINESE_FONT_PATH = "C:/Windows/Fonts/msyh.ttc";
+    static constexpr float FONT_SIZE = 18.0f;
+
     ImGuiLayer::ImGuiLayer(): Layer("ImGuiLayer") {}
     ImGuiLayer::~ImGuiLayer() = default;
 
@@ -22,6 +28,13 @@ namespace OiEngine {
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // 键盘导航
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;      // 停靠布局（docking 分支）
+
+        if (std::filesystem::exists(CHINESE_FONT_PATH)) {
+            io.Fonts->AddFontFromFileTTF(CHINESE_FONT_PATH, FONT_SIZE, nullptr,
+                                         io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+        } else {
+            OI_WARN("中文字体不存在，ImGui 中文将显示为 ?: {0}", CHINESE_FONT_PATH);
+        }
 
         ImGui::StyleColorsDark();
 

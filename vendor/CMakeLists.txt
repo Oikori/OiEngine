@@ -38,5 +38,4 @@ target_link_libraries(imgui PUBLIC
 # 这里以编译器选项形式原样传递
 target_compile_options(imgui PRIVATE
     "-DIMGUI_API=__declspec(dllexport)"
-    "-DIMGUI_IMPL_API=__declspec(dllexport)"
 )

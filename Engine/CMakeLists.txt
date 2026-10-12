@@ -20,12 +20,11 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 # 注意：不能用 target_compile_definitions —— CMake 会拆解值中的括号
 target_compile_options(${PROJECT_NAME} INTERFACE
     "-DIMGUI_API=__declspec(dllimport)"
-    "-DIMGUI_IMPL_API=__declspec(dllimport)"
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/vendor/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/imgui
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
