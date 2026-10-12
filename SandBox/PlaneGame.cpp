@@ -19,24 +19,24 @@ namespace {
 
     constexpr float PI = 3.14159265358979323846f;
 
-    const Math::Vector4 PLAYER_FUSELAGE(0.42f, 0.52f, 0.66f, 1.0f);
-    const Math::Vector4 PLAYER_WING(0.30f, 0.38f, 0.50f, 1.0f);
-    const Math::Vector4 PLAYER_CANOPY(0.55f, 0.88f, 1.00f, 1.0f);
-    const Math::Vector4 PLAYER_TAIL(0.24f, 0.32f, 0.44f, 1.0f);
-    const Math::Vector4 PLAYER_FLAME(0.40f, 0.85f, 1.00f, 0.85f);
+    const glm::vec4 PLAYER_FUSELAGE(0.42f, 0.52f, 0.66f, 1.0f);
+    const glm::vec4 PLAYER_WING(0.30f, 0.38f, 0.50f, 1.0f);
+    const glm::vec4 PLAYER_CANOPY(0.55f, 0.88f, 1.00f, 1.0f);
+    const glm::vec4 PLAYER_TAIL(0.24f, 0.32f, 0.44f, 1.0f);
+    const glm::vec4 PLAYER_FLAME(0.40f, 0.85f, 1.00f, 0.85f);
 
-    const Math::Vector4 ENEMY_A_BODY(0.92f, 0.28f, 0.24f, 1.0f);
-    const Math::Vector4 ENEMY_A_TRIM(0.62f, 0.16f, 0.16f, 1.0f);
-    const Math::Vector4 ENEMY_A_CORE(1.00f, 0.88f, 0.55f, 1.0f);
-    const Math::Vector4 ENEMY_B_BODY(0.38f, 0.85f, 0.45f, 1.0f);
-    const Math::Vector4 ENEMY_B_TRIM(0.20f, 0.58f, 0.30f, 1.0f);
-    const Math::Vector4 ENEMY_B_CORE(0.85f, 1.00f, 0.88f, 1.0f);
-    const Math::Vector4 ENEMY_C_BODY(0.80f, 0.35f, 0.90f, 1.0f);
-    const Math::Vector4 ENEMY_C_TRIM(0.52f, 0.20f, 0.66f, 1.0f);
-    const Math::Vector4 ENEMY_C_CORE(1.00f, 0.90f, 0.60f, 1.0f);
-    const Math::Vector4 ENEMY_BULLET_A(1.00f, 0.42f, 0.30f, 1.0f);
-    const Math::Vector4 ENEMY_BULLET_C(1.00f, 0.78f, 0.30f, 1.0f);
-    const Math::Vector4 BULLET_CORE(1.0f, 1.0f, 1.0f, 1.0f);
+    const glm::vec4 ENEMY_A_BODY(0.92f, 0.28f, 0.24f, 1.0f);
+    const glm::vec4 ENEMY_A_TRIM(0.62f, 0.16f, 0.16f, 1.0f);
+    const glm::vec4 ENEMY_A_CORE(1.00f, 0.88f, 0.55f, 1.0f);
+    const glm::vec4 ENEMY_B_BODY(0.38f, 0.85f, 0.45f, 1.0f);
+    const glm::vec4 ENEMY_B_TRIM(0.20f, 0.58f, 0.30f, 1.0f);
+    const glm::vec4 ENEMY_B_CORE(0.85f, 1.00f, 0.88f, 1.0f);
+    const glm::vec4 ENEMY_C_BODY(0.80f, 0.35f, 0.90f, 1.0f);
+    const glm::vec4 ENEMY_C_TRIM(0.52f, 0.20f, 0.66f, 1.0f);
+    const glm::vec4 ENEMY_C_CORE(1.00f, 0.90f, 0.60f, 1.0f);
+    const glm::vec4 ENEMY_BULLET_A(1.00f, 0.42f, 0.30f, 1.0f);
+    const glm::vec4 ENEMY_BULLET_C(1.00f, 0.78f, 0.30f, 1.0f);
+    const glm::vec4 BULLET_CORE(1.0f, 1.0f, 1.0f, 1.0f);
 
     std::mt19937 g_rng(0x9E3779B9u);
 
@@ -56,7 +56,7 @@ namespace {
         std::vector<float> vertices;  // 交错存储：位置 (Float3) + 颜色 (Float4)
         std::vector<uint32_t> indices;
 
-        uint32_t AddVertex(const Math::Vector2& p, float z, const Math::Vector4& color)
+        uint32_t AddVertex(const glm::vec2& p, float z, const glm::vec4& color)
         {
             vertices.push_back(p.x);
             vertices.push_back(p.y);
@@ -68,8 +68,8 @@ namespace {
             return static_cast<uint32_t>(vertices.size() / 7 - 1);
         }
 
-        void AddTriangle(const Math::Vector2& a, const Math::Vector2& b, const Math::Vector2& c,
-                         const Math::Vector4& color, float z = 0.0f)
+        void AddTriangle(const glm::vec2& a, const glm::vec2& b, const glm::vec2& c,
+                         const glm::vec4& color, float z = 0.0f)
         {
             const uint32_t base = AddVertex(a, z, color);
             AddVertex(b, z, color);
@@ -79,14 +79,14 @@ namespace {
             indices.push_back(base + 2);
         }
 
-        void AddPolygon(std::initializer_list<Math::Vector2> points, const Math::Vector4& color, float z = 0.0f)
+        void AddPolygon(std::initializer_list<glm::vec2> points, const glm::vec4& color, float z = 0.0f)
         {
             if (points.size() < 3) {
                 return;
             }
-            const Math::Vector2& first = *points.begin();
+            const glm::vec2& first = *points.begin();
             auto it = points.begin() + 1;
-            const Math::Vector2* prev = &*it;
+            const glm::vec2* prev = &*it;
             for (++it; it != points.end(); ++it) {
                 AddTriangle(first, *prev, *it, color, z);
                 prev = &*it;
@@ -96,13 +96,13 @@ namespace {
 
     // 竖直方向渐变的矩形（用于子弹与光条）：top/bottom 分别指定上下端颜色
     void AddVerticalRect(MeshBuilder& builder, float halfWidth, float halfHeight,
-                         const Math::Vector4& top, const Math::Vector4& bottom, float z = 0.0f)
+                         const glm::vec4& top, const glm::vec4& bottom, float z = 0.0f)
     {
         const uint32_t index = static_cast<uint32_t>(builder.vertices.size() / 7);
-        builder.AddVertex(Math::Vector2(-halfWidth, halfHeight), z, top);
-        builder.AddVertex(Math::Vector2(halfWidth, halfHeight), z, top);
-        builder.AddVertex(Math::Vector2(-halfWidth, -halfHeight), z, bottom);
-        builder.AddVertex(Math::Vector2(halfWidth, -halfHeight), z, bottom);
+        builder.AddVertex(glm::vec2(-halfWidth, halfHeight), z, top);
+        builder.AddVertex(glm::vec2(halfWidth, halfHeight), z, top);
+        builder.AddVertex(glm::vec2(-halfWidth, -halfHeight), z, bottom);
+        builder.AddVertex(glm::vec2(halfWidth, -halfHeight), z, bottom);
         builder.indices.push_back(index + 0);
         builder.indices.push_back(index + 2);
         builder.indices.push_back(index + 1);
@@ -113,16 +113,16 @@ namespace {
 
     // 端点透明、中心发亮的胶囊状子弹
     void AddBulletShape(MeshBuilder& builder, float halfWidth, float halfHeight,
-                        const Math::Vector4& color, const Math::Vector4& core)
+                        const glm::vec4& color, const glm::vec4& core)
     {
         const float tip = 0.94f;
-        const Math::Vector4 fadedColor(0.0f, color.y * 0.2f, color.z * 0.2f, 0.0f);
+        const glm::vec4 fadedColor(0.0f, color.y * 0.2f, color.z * 0.2f, 0.0f);
         AddVerticalRect(builder, halfWidth, halfHeight * tip, color, fadedColor);
         AddVerticalRect(builder, halfWidth * 0.34f, halfHeight * 0.86f, core, core);
     }
 
     // 十字星闪光（爆炸核心）
-    void AddStarBurst(MeshBuilder& builder, float length, float thickness, const Math::Vector4& color)
+    void AddStarBurst(MeshBuilder& builder, float length, float thickness, const glm::vec4& color)
     {
         builder.AddPolygon({
             { 0.0f, length }, { thickness / length * length * 0.18f, 0.0f },
@@ -133,7 +133,7 @@ namespace {
     }
 
     // 径向光晕（中心亮、边缘透明）；着色器以局部坐标长度作衰减，故模型半径即 1.0
-    void AddRadialGlow(MeshBuilder& builder, float radius, const Math::Vector4& center, float z = 0.0f)
+    void AddRadialGlow(MeshBuilder& builder, float radius, const glm::vec4& center, float z = 0.0f)
     {
         builder.AddPolygon({
             { radius, 0.0f }, { radius * 0.7071f, radius * 0.7071f },
@@ -144,15 +144,15 @@ namespace {
     }
 
     // 爆炸圆环：线宽由绘制时的 SetLineWidth 控制
-    void AddRingShape(MeshBuilder& builder, float radius, const Math::Vector4& color)
+    void AddRingShape(MeshBuilder& builder, float radius, const glm::vec4& color)
     {
         constexpr uint32_t SEGMENTS = 32;
         const uint32_t base = static_cast<uint32_t>(builder.vertices.size() / 7);
         for (uint32_t segment = 0; segment <= SEGMENTS; ++segment) {
             const float angle = 2.0f * PI * static_cast<float>(segment) / SEGMENTS;
             const float strength = 0.35f + 0.65f * std::abs(std::sin(angle * 2.0f));
-            builder.AddVertex(Math::Vector2(std::cos(angle) * radius, std::sin(angle) * radius), 0.0f,
-                              Math::Vector4(color.x * strength, color.y * strength, color.z * strength, color.w));
+            builder.AddVertex(glm::vec2(std::cos(angle) * radius, std::sin(angle) * radius), 0.0f,
+                              glm::vec4(color.x * strength, color.y * strength, color.z * strength, color.w));
         }
         for (uint32_t segment = 0; segment < SEGMENTS; ++segment) {
             builder.indices.push_back(base + segment);
@@ -233,35 +233,35 @@ namespace {
     Ref<VertexArray> CreatePlayerBulletMesh()
     {
         MeshBuilder builder;
-        AddBulletShape(builder, 0.045f, 0.14f, Math::Vector4(1.0f, 0.85f, 0.30f, 1.0f), BULLET_CORE);
+        AddBulletShape(builder, 0.045f, 0.14f, glm::vec4(1.0f, 0.85f, 0.30f, 1.0f), BULLET_CORE);
         return BuildMesh(builder);
     }
 
-    Ref<VertexArray> CreateEnemyBulletSprite(const Math::Vector4& color)
+    Ref<VertexArray> CreateEnemyBulletSprite(const glm::vec4& color)
     {
         MeshBuilder builder;
-        AddBulletShape(builder, 0.042f, 0.13f, color, Math::Vector4(1.0f, 0.95f, 0.85f, 1.0f));
+        AddBulletShape(builder, 0.042f, 0.13f, color, glm::vec4(1.0f, 0.95f, 0.85f, 1.0f));
         return BuildMesh(builder);
     }
 
     Ref<VertexArray> CreateRingMesh()
     {
         MeshBuilder builder;
-        AddRingShape(builder, 1.0f, Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+        AddRingShape(builder, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
         return BuildMesh(builder);
     }
 
     Ref<VertexArray> CreateBurstMesh()
     {
         MeshBuilder builder;
-        AddStarBurst(builder, 1.0f, 0.36f, Math::Vector4(1.0f, 0.95f, 0.75f, 1.0f));
+        AddStarBurst(builder, 1.0f, 0.36f, glm::vec4(1.0f, 0.95f, 0.75f, 1.0f));
         return BuildMesh(builder);
     }
 
     Ref<VertexArray> CreateGlowMesh()
     {
         MeshBuilder builder;
-        AddRadialGlow(builder, 1.0f, Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+        AddRadialGlow(builder, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
         return BuildMesh(builder);
     }
 
@@ -269,8 +269,8 @@ namespace {
     Ref<VertexArray> CreateVignetteMesh()
     {
         MeshBuilder builder;
-        const Math::Vector4 solid(1.0f, 1.0f, 1.0f, 1.0f);
-        const Math::Vector4 clear(1.0f, 1.0f, 1.0f, 0.0f);
+        const glm::vec4 solid(1.0f, 1.0f, 1.0f, 1.0f);
+        const glm::vec4 clear(1.0f, 1.0f, 1.0f, 0.0f);
         AddVerticalRect(builder, 1.0f, 1.0f, solid, clear);
         return BuildMesh(builder);
     }
@@ -279,7 +279,7 @@ namespace {
     Ref<VertexArray> CreateFullscreenMesh()
     {
         MeshBuilder builder;
-        const Math::Vector4 white(1.0f, 1.0f, 1.0f, 1.0f);
+        const glm::vec4 white(1.0f, 1.0f, 1.0f, 1.0f);
         AddVerticalRect(builder, 1.0f, 1.0f, white, white);
         return BuildMesh(builder);
     }
@@ -287,17 +287,17 @@ namespace {
 
 // ---------- PlaneGameCamera ----------
 
-Math::Vector3 PlaneGameCamera::GetPosition() const
+glm::vec3 PlaneGameCamera::GetPosition() const
 {
-    return Math::Vector3(0.0f, 0.0f, 10.0f);
+    return glm::vec3(0.0f, 0.0f, 10.0f);
 }
 
-Math::Matrix4 PlaneGameCamera::GetViewMatrix() const
+glm::mat4 PlaneGameCamera::GetViewMatrix() const
 {
-    return Math::Matrix4(1.0f);
+    return glm::mat4(1.0f);
 }
 
-Math::Matrix4 PlaneGameCamera::GetProjectionMatrix() const
+glm::mat4 PlaneGameCamera::GetProjectionMatrix() const
 {
     // 世界单位与窗口像素 1:1（窗口高 900px 时半高恰为 450）
     const uint32_t width = Application::Get().GetWindow().GetWidth();
@@ -316,7 +316,7 @@ void PlaneGameLayer::OnAttach()
     CreateMeshes();
     CreateStars();
 
-    RenderCommand::SetClearColor(Math::Vector4(0.02f, 0.03f, 0.08f, 1.0f));
+    RenderCommand::SetClearColor(glm::vec4(0.02f, 0.03f, 0.08f, 1.0f));
     ResetGame();
 
     OI_INFO("PlaneGame OnAttach");
@@ -426,24 +426,24 @@ void PlaneGameLayer::CreateStars()
     // 星空覆盖整个窗口（世界单位在 -900..900 x -450..450 之间，留出余量）
     for (uint32_t i = 0; i < STAR_COUNT; ++i) {
         Star star;
-        star.position = Math::Vector2(RandomFloat(-1100.0f, 1100.0f), RandomFloat(-450.0f, 450.0f));
+        star.position = glm::vec2(RandomFloat(-1100.0f, 1100.0f), RandomFloat(-450.0f, 450.0f));
         star.speed = RandomFloat(30.0f, 170.0f);
         star.size = RandomFloat(1.5f, 3.5f);
         const float brightness = RandomFloat(0.60f, 1.00f);
-        star.color = Math::Vector4(brightness, brightness, 0.95f + 0.05f * brightness, 1.0f);
+        star.color = glm::vec4(brightness, brightness, 0.95f + 0.05f * brightness, 1.0f);
         m_stars.push_back(star);
     }
 
     for (int i = 0; i < 6; ++i) {
         Nebula nebula;
-        nebula.position = Math::Vector2(RandomFloat(-900.0f, 900.0f), RandomFloat(-450.0f, 450.0f));
+        nebula.position = glm::vec2(RandomFloat(-900.0f, 900.0f), RandomFloat(-450.0f, 450.0f));
         nebula.speed = RandomFloat(6.0f, 14.0f);
         nebula.scale = RandomFloat(140.0f, 320.0f);
-        const Math::Vector4 palette[4] = {
-            Math::Vector4(0.22f, 0.30f, 0.62f, 0.10f),
-            Math::Vector4(0.42f, 0.20f, 0.50f, 0.10f),
-            Math::Vector4(0.15f, 0.45f, 0.55f, 0.09f),
-            Math::Vector4(0.30f, 0.25f, 0.70f, 0.09f),
+        const glm::vec4 palette[4] = {
+            glm::vec4(0.22f, 0.30f, 0.62f, 0.10f),
+            glm::vec4(0.42f, 0.20f, 0.50f, 0.10f),
+            glm::vec4(0.15f, 0.45f, 0.55f, 0.09f),
+            glm::vec4(0.30f, 0.25f, 0.70f, 0.09f),
         };
         nebula.color = palette[i % 4];
         m_nebulae.push_back(nebula);
@@ -468,8 +468,8 @@ void PlaneGameLayer::ResetGame()
     m_fireCooldown = 0.0f;
     m_shake = 0.0f;
     m_hitFlash = 0.0f;
-    m_playerPosition = Math::Vector2(0.0f, -m_halfHeight + 110.0f);
-    m_playerVelocity = Math::Vector2(0.0f, 0.0f);
+    m_playerPosition = glm::vec2(0.0f, -m_halfHeight + 110.0f);
+    m_playerVelocity = glm::vec2(0.0f, 0.0f);
     m_playerRotation = 0.0f;
     m_entities.clear();
     m_effects.clear();
@@ -520,7 +520,7 @@ void PlaneGameLayer::RebuildStarVertices()
     }
 }
 
-void PlaneGameLayer::SpawnEnemy(EntityKind kind, const Math::Vector2& position)
+void PlaneGameLayer::SpawnEnemy(EntityKind kind, const glm::vec2& position)
 {
     Entity enemy;
     enemy.kind = kind;
@@ -530,18 +530,18 @@ void PlaneGameLayer::SpawnEnemy(EntityKind kind, const Math::Vector2& position)
         case EntityKind::EnemyA:
             enemy.mesh = &m_enemyAMesh;
             enemy.radius = 42.0f;
-            enemy.velocity = Math::Vector2(0.0f, 160.0f * m_difficulty);
+            enemy.velocity = glm::vec2(0.0f, 160.0f * m_difficulty);
             break;
         case EntityKind::EnemyB:
             enemy.mesh = &m_enemyBMesh;
             enemy.radius = 36.0f;
             enemy.wave = RandomFloat(0.0f, 2.0f * PI);
-            enemy.velocity = Math::Vector2(0.0f, 205.0f * m_difficulty);
+            enemy.velocity = glm::vec2(0.0f, 205.0f * m_difficulty);
             break;
         case EntityKind::EnemyC:
             enemy.mesh = &m_enemyCMesh;
             enemy.radius = 62.0f;
-            enemy.velocity = Math::Vector2(0.0f, 100.0f * m_difficulty);
+            enemy.velocity = glm::vec2(0.0f, 100.0f * m_difficulty);
             break;
         default:
             break;
@@ -564,21 +564,21 @@ void PlaneGameLayer::SpawnFighterShot()
         bullet.kind = EntityKind::PlayerBullet;
         bullet.mesh = &m_playerBulletMesh;
         bullet.radius = 10.0f;
-        bullet.position = Math::Vector2(
+        bullet.position = glm::vec2(
             m_playerPosition.x + side * wingX * cosR - muzzleY * sinR,
             m_playerPosition.y + side * wingX * sinR + muzzleY * cosR);
-        bullet.velocity = Math::Vector2(-side * wingX * 1.6f, 640.0f);
+        bullet.velocity = glm::vec2(-side * wingX * 1.6f, 640.0f);
         m_entities.push_back(bullet);
     }
 }
 
 void PlaneGameLayer::SpawnEnemyShot(const Entity& enemy)
 {
-    const Math::Vector2 aim = m_playerPosition - enemy.position;
+    const glm::vec2 aim = m_playerPosition - enemy.position;
     const float distance = std::sqrt(aim.x * aim.x + aim.y * aim.y);
-    const Math::Vector2 direction = distance > 0.001f ? aim / distance : Math::Vector2(0.0f, -1.0f);
+    const glm::vec2 direction = distance > 0.001f ? aim / distance : glm::vec2(0.0f, -1.0f);
 
-    auto spawnBullet = [&](const Ref<VertexArray>* mesh, const Math::Vector2& velocity, float radius) {
+    auto spawnBullet = [&](const Ref<VertexArray>* mesh, const glm::vec2& velocity, float radius) {
         Entity bullet;
         bullet.kind = EntityKind::EnemyBullet;
         bullet.mesh = mesh;
@@ -590,7 +590,7 @@ void PlaneGameLayer::SpawnEnemyShot(const Entity& enemy)
 
     switch (enemy.kind) {
         case EntityKind::EnemyA:
-            spawnBullet(&m_enemyBulletMesh, Math::Vector2(0.0f, -250.0f), 12.0f);
+            spawnBullet(&m_enemyBulletMesh, glm::vec2(0.0f, -250.0f), 12.0f);
             break;
         case EntityKind::EnemyB:
             spawnBullet(&m_enemyBulletMesh, direction * 290.0f, 12.0f);
@@ -600,7 +600,7 @@ void PlaneGameLayer::SpawnEnemyShot(const Entity& enemy)
             for (int i = -1; i <= 1; ++i) {
                 const float angle = base + static_cast<float>(i) * 0.24f;
                 spawnBullet(&m_enemyBulletHeavyMesh,
-                            Math::Vector2(std::sin(angle), std::cos(angle)) * 240.0f, 14.0f);
+                            glm::vec2(std::sin(angle), std::cos(angle)) * 240.0f, 14.0f);
             }
             break;
         }
@@ -609,7 +609,7 @@ void PlaneGameLayer::SpawnEnemyShot(const Entity& enemy)
     }
 }
 
-void PlaneGameLayer::SpawnExplosion(const Math::Vector2& position, const Math::Vector4& color,
+void PlaneGameLayer::SpawnExplosion(const glm::vec2& position, const glm::vec4& color,
                                     float radius, bool large)
 {
     Effect flash;
@@ -617,7 +617,7 @@ void PlaneGameLayer::SpawnExplosion(const Math::Vector2& position, const Math::V
     flash.position = position;
     flash.radius = large ? 150.0f : radius * 2.2f;
     flash.lifetime = large ? 0.4f : 0.2f;
-    flash.color = Math::Vector4(1.0f, 0.92f, 0.65f, 0.9f);
+    flash.color = glm::vec4(1.0f, 0.92f, 0.65f, 0.9f);
     m_effects.push_back(flash);
 
     Effect burst;
@@ -625,7 +625,7 @@ void PlaneGameLayer::SpawnExplosion(const Math::Vector2& position, const Math::V
     burst.position = position;
     burst.radius = large ? 180.0f : radius * 2.6f;
     burst.lifetime = large ? 0.45f : 0.25f;
-    burst.color = Math::Vector4(1.0f, 0.85f, 0.45f, 1.0f);
+    burst.color = glm::vec4(1.0f, 0.85f, 0.45f, 1.0f);
     m_effects.push_back(burst);
 
     Effect ring;
@@ -643,7 +643,7 @@ void PlaneGameLayer::SpawnExplosion(const Math::Vector2& position, const Math::V
         secondRing.position = position;
         secondRing.radius = 260.0f;
         secondRing.lifetime = 0.75f;
-        secondRing.color = Math::Vector4(1.0f, 0.65f, 0.35f, 1.0f);
+        secondRing.color = glm::vec4(1.0f, 0.65f, 0.35f, 1.0f);
         secondRing.thickness = 3.0f;
         m_effects.push_back(secondRing);
     }
@@ -656,29 +656,29 @@ void PlaneGameLayer::SpawnExplosion(const Math::Vector2& position, const Math::V
         particle.position = position;
         const float angle = RandomFloat(0.0f, 2.0f * PI);
         const float speed = RandomFloat(60.0f, large ? 520.0f : 320.0f);
-        particle.velocity = Math::Vector2(std::cos(angle), std::sin(angle)) * speed;
+        particle.velocity = glm::vec2(std::cos(angle), std::sin(angle)) * speed;
         particle.rotation = RandomFloat(0.0f, 2.0f * PI);
         particle.spin = RandomFloat(-6.0f, 6.0f);
         particle.scale = RandomFloat(10.0f, large ? 40.0f : 26.0f);
         particle.lifetime = RandomFloat(0.35f, large ? 1.1f : 0.7f);
         const float mix = RandomFloat(0.0f, 1.0f);
-        particle.color = Math::Vector4(color.x * (1.0f - mix) + 1.0f * mix,
+        particle.color = glm::vec4(color.x * (1.0f - mix) + 1.0f * mix,
                                        color.y * (1.0f - mix) + 0.85f * mix,
                                        color.z * (1.0f - mix) + 0.45f * mix, 1.0f);
         m_entities.push_back(particle);
     }
 }
 
-void PlaneGameLayer::SpawnPlayerDeath(const Math::Vector2& position)
+void PlaneGameLayer::SpawnPlayerDeath(const glm::vec2& position)
 {
-    SpawnExplosion(position, Math::Vector4(0.40f, 0.85f, 1.00f, 1.0f), 80.0f, true);
+    SpawnExplosion(position, glm::vec4(0.40f, 0.85f, 1.00f, 1.0f), 80.0f, true);
 
     Effect ring;
     ring.kind = EffectKind::Ring;
     ring.position = position;
     ring.radius = 340.0f;
     ring.lifetime = 0.9f;
-    ring.color = Math::Vector4(0.85f, 0.95f, 1.0f, 1.0f);
+    ring.color = glm::vec4(0.85f, 0.95f, 1.0f, 1.0f);
     ring.thickness = 4.0f;
     m_effects.push_back(ring);
 }
@@ -687,12 +687,12 @@ void PlaneGameLayer::KillEnemy(uint32_t index)
 {
     Entity& enemy = m_entities[index];
 
-    const Math::Vector4 color = [&]() {
+    const glm::vec4 color = [&]() {
         switch (enemy.kind) {
             case EntityKind::EnemyA: return ENEMY_A_BODY;
             case EntityKind::EnemyB: return ENEMY_B_BODY;
             case EntityKind::EnemyC: return ENEMY_C_BODY;
-            default: return Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+            default: return glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
         }
     }();
 
@@ -753,8 +753,8 @@ void PlaneGameLayer::HitPlayer()
         return;
     }
 
-    m_playerPosition = Math::Vector2(0.0f, -m_halfHeight + 110.0f);
-    m_playerVelocity = Math::Vector2(0.0f, 0.0f);
+    m_playerPosition = glm::vec2(0.0f, -m_halfHeight + 110.0f);
+    m_playerVelocity = glm::vec2(0.0f, 0.0f);
     m_invulnerable = 2.0f;
 }
 
@@ -765,9 +765,9 @@ void PlaneGameLayer::UpdatePlayer(float deltaTime)
     }
 
     // WASD / 方向键移动
-    const Math::Vector2 facing[4] = {
-        Math::Vector2(0.0f, 1.0f), Math::Vector2(0.0f, -1.0f),
-        Math::Vector2(-1.0f, 0.0f), Math::Vector2(1.0f, 0.0f),
+    const glm::vec2 facing[4] = {
+        glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, -1.0f),
+        glm::vec2(-1.0f, 0.0f), glm::vec2(1.0f, 0.0f),
     };
     const bool keys[4] = {
         Input::IsKeyPressed(Key::W) || Input::IsKeyPressed(Key::Up),
@@ -776,7 +776,7 @@ void PlaneGameLayer::UpdatePlayer(float deltaTime)
         Input::IsKeyPressed(Key::D) || Input::IsKeyPressed(Key::Right),
     };
 
-    Math::Vector2 target(0.0f, 0.0f);
+    glm::vec2 target(0.0f, 0.0f);
     for (int i = 0; i < 4; ++i) {
         if (keys[i]) {
             target += facing[i];
@@ -934,7 +934,7 @@ void PlaneGameLayer::UpdateSpawning(float deltaTime)
             }
         }
 
-        SpawnEnemy(kind, Math::Vector2(x, y));
+        SpawnEnemy(kind, glm::vec2(x, y));
     }
 }
 
@@ -986,7 +986,7 @@ void PlaneGameLayer::OnUpdate()
                 continue;
             }
 
-            const Math::Vector2 bulletPosition = m_entities[i].position;
+            const glm::vec2 bulletPosition = m_entities[i].position;
             const float bulletRadius = m_entities[i].radius;
 
             uint32_t hitIndex = 0;
@@ -1033,7 +1033,7 @@ void PlaneGameLayer::OnUpdate()
                 m_entities.pop_back();
                 if (!wasBullet) {
                     // 撞上敌机：敌机也被摧毁
-                    SpawnExplosion(entity.position, Math::Vector4(0.9f, 0.4f, 0.3f, 1.0f), entity.radius, false);
+                    SpawnExplosion(entity.position, glm::vec4(0.9f, 0.4f, 0.3f, 1.0f), entity.radius, false);
                 }
                 HitPlayer();
                 if (m_invulnerable > 0.0f || m_state == GameState::GameOver) {
@@ -1048,9 +1048,9 @@ void PlaneGameLayer::OnUpdate()
     }
 
     // 视图偏移（受击震屏）
-    Math::Matrix4 viewOffset(1.0f);
+    glm::mat4 viewOffset(1.0f);
     if (m_shake > 0.01f) {
-        viewOffset = Translate(Math::Vector3(RandomFloat(-m_shake, m_shake) * 0.5f,
+        viewOffset = Translate(glm::vec3(RandomFloat(-m_shake, m_shake) * 0.5f,
                                              RandomFloat(-m_shake, m_shake) * 0.5f, 0.0f));
     }
 
@@ -1059,8 +1059,8 @@ void PlaneGameLayer::OnUpdate()
     Renderer::EndScene();
 }
 
-void PlaneGameLayer::DrawMesh(const Ref<VertexArray>& mesh, const Math::Matrix4& transform,
-                              const Math::Vector4& tint, float lineWidth)
+void PlaneGameLayer::DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& transform,
+                              const glm::vec4& tint, float lineWidth)
 {
     m_shader->SetMat4("u_Transform", transform);
     m_shader->SetFloat4("u_Tint", tint);
@@ -1070,7 +1070,7 @@ void PlaneGameLayer::DrawMesh(const Ref<VertexArray>& mesh, const Math::Matrix4&
     RenderCommand::DrawIndexed(mesh);
 }
 
-void PlaneGameLayer::RenderWorld(const Math::Matrix4& viewOffset)
+void PlaneGameLayer::RenderWorld(const glm::mat4& viewOffset)
 {
     // 手动渲染路径：先绑定着色器再设置 uniform（glUniform* 只作用于当前绑定的 program）
     m_shader->Bind();
@@ -1080,28 +1080,28 @@ void PlaneGameLayer::RenderWorld(const Math::Matrix4& viewOffset)
     // ---- 背景：星云 + 星空 ----
     m_shader->SetFloat("u_Falloff", 1.0f);
     for (const auto& nebula : m_nebulae) {
-        const Math::Matrix4 transform = Translate(Math::Vector3(nebula.position.x, nebula.position.y, -2.0f)) *
-                                        Scale(Math::Vector3(nebula.scale, nebula.scale, 1.0f));
+        const glm::mat4 transform = Translate(glm::vec3(nebula.position.x, nebula.position.y, -2.0f)) *
+                                        Scale(glm::vec3(nebula.scale, nebula.scale, 1.0f));
         DrawMesh(m_glowMesh, transform, nebula.color);
     }
 
     m_shader->SetFloat("u_Falloff", 0.0f);
-    DrawMesh(m_starMesh, Math::Matrix4(1.0f), Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+    DrawMesh(m_starMesh, glm::mat4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
 
     // ---- 敌机 ----
     for (const auto& entity : m_entities) {
         switch (entity.kind) {
             case EntityKind::EnemyA:
-                DrawMesh(*entity.mesh, Translate(Math::Vector3(entity.position.x, entity.position.y, -0.05f)) *
-                                          RotateZ(entity.rotation) * Scale(Math::Vector3(70.0f, 70.0f, 1.0f)));
+                DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, -0.05f)) *
+                                          RotateZ(entity.rotation) * Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
                 break;
             case EntityKind::EnemyB:
-                DrawMesh(*entity.mesh, Translate(Math::Vector3(entity.position.x, entity.position.y, -0.05f)) *
-                                          RotateZ(entity.rotation) * Scale(Math::Vector3(56.0f, 56.0f, 1.0f)));
+                DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, -0.05f)) *
+                                          RotateZ(entity.rotation) * Scale(glm::vec3(56.0f, 56.0f, 1.0f)));
                 break;
             case EntityKind::EnemyC:
-                DrawMesh(*entity.mesh, Translate(Math::Vector3(entity.position.x, entity.position.y, -0.05f)) *
-                                          RotateZ(entity.rotation) * Scale(Math::Vector3(86.0f, 86.0f, 1.0f)));
+                DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, -0.05f)) *
+                                          RotateZ(entity.rotation) * Scale(glm::vec3(86.0f, 86.0f, 1.0f)));
                 break;
             default:
                 break;
@@ -1112,8 +1112,8 @@ void PlaneGameLayer::RenderWorld(const Math::Matrix4& viewOffset)
     for (const auto& entity : m_entities) {
         if (entity.kind == EntityKind::EnemyBullet) {
             const float angle = std::atan2(entity.velocity.x, entity.velocity.y);
-            DrawMesh(*entity.mesh, Translate(Math::Vector3(entity.position.x, entity.position.y, 0.02f)) *
-                                   RotateZ(angle) * Scale(Math::Vector3(70.0f, 70.0f, 1.0f)));
+            DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, 0.02f)) *
+                                   RotateZ(angle) * Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
         }
     }
 
@@ -1125,25 +1125,25 @@ void PlaneGameLayer::RenderWorld(const Math::Matrix4& viewOffset)
             const float expansion = 0.55f + 0.45f * t;
             const float radius = effect.radius * expansion;
             m_shader->SetFloat("u_Falloff", 1.0f);
-            DrawMesh(m_glowMesh, Translate(Math::Vector3(effect.position.x, effect.position.y, 0.2f)) *
-                                 Scale(Math::Vector3(radius, radius, 1.0f)),
-                     Math::Vector4(effect.color.x, effect.color.y, effect.color.z, alpha));
+            DrawMesh(m_glowMesh, Translate(glm::vec3(effect.position.x, effect.position.y, 0.2f)) *
+                                 Scale(glm::vec3(radius, radius, 1.0f)),
+                     glm::vec4(effect.color.x, effect.color.y, effect.color.z, alpha));
         } else if (effect.kind == EffectKind::Burst) {
             const float t = std::min(effect.age / effect.lifetime, 1.0f);
             const float alpha = (1.0f - t) * (1.0f - t);
             m_shader->SetFloat("u_Falloff", 0.0f);
-            DrawMesh(m_burstMesh, Translate(Math::Vector3(effect.position.x, effect.position.y, 0.15f)) *
+            DrawMesh(m_burstMesh, Translate(glm::vec3(effect.position.x, effect.position.y, 0.15f)) *
                                   RotateZ(t * 1.2f) *
-                                  Scale(Math::Vector3(effect.radius, effect.radius, 1.0f)),
-                     Math::Vector4(effect.color.x, effect.color.y, effect.color.z, alpha));
+                                  Scale(glm::vec3(effect.radius, effect.radius, 1.0f)),
+                     glm::vec4(effect.color.x, effect.color.y, effect.color.z, alpha));
         } else {
             const float t = std::min(effect.age / effect.lifetime, 1.0f);
             const float expansion = t * t * (3.0f - 2.0f * t);
             const float radius = effect.radius * (0.25f + 0.75f * expansion);
             const float alpha = (1.0f - t) * effect.color.w;
-            DrawMesh(m_ringMesh, Translate(Math::Vector3(effect.position.x, effect.position.y, 0.1f)) *
-                                 Scale(Math::Vector3(radius, radius, 1.0f)),
-                     Math::Vector4(effect.color.x, effect.color.y, effect.color.z, alpha),
+            DrawMesh(m_ringMesh, Translate(glm::vec3(effect.position.x, effect.position.y, 0.1f)) *
+                                 Scale(glm::vec3(radius, radius, 1.0f)),
+                     glm::vec4(effect.color.x, effect.color.y, effect.color.z, alpha),
                      effect.thickness * (1.0f - t * 0.6f));
         }
     }
@@ -1157,9 +1157,9 @@ void PlaneGameLayer::RenderWorld(const Math::Matrix4& viewOffset)
         const float t = std::min(entity.age / entity.lifetime, 1.0f);
         const float alpha = (1.0f - t) * (1.0f - t);
         const float size = entity.scale * (1.0f - t * 0.6f);
-        DrawMesh(*entity.mesh, Translate(Math::Vector3(entity.position.x, entity.position.y, 0.15f)) *
-                               RotateZ(entity.rotation) * Scale(Math::Vector3(size, size, 1.0f)),
-                 Math::Vector4(entity.color.x, entity.color.y, entity.color.z, alpha));
+        DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, 0.15f)) *
+                               RotateZ(entity.rotation) * Scale(glm::vec3(size, size, 1.0f)),
+                 glm::vec4(entity.color.x, entity.color.y, entity.color.z, alpha));
     }
 
     // ---- 玩家 ----
@@ -1171,40 +1171,40 @@ void PlaneGameLayer::RenderWorld(const Math::Matrix4& viewOffset)
         const float flameHeight = (44.0f + 26.0f * thrust) * (1.0f - std::min(std::sqrt(m_playerVelocity.x * m_playerVelocity.x +
                                                                                     m_playerVelocity.y * m_playerVelocity.y) / 1000.0f, 0.35f));
         m_shader->SetFloat("u_Falloff", 1.0f);
-        DrawMesh(m_glowMesh, Translate(Math::Vector3(m_playerPosition.x, m_playerPosition.y, -0.02f)) *
+        DrawMesh(m_glowMesh, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y, -0.02f)) *
                              RotateZ(m_playerRotation) *
-                             Translate(Math::Vector3(0.0f, -52.0f, 0.0f)) *
-                             Scale(Math::Vector3(20.0f, flameHeight, 1.0f)),
-                 Math::Vector4(PLAYER_FLAME.x, PLAYER_FLAME.y, PLAYER_FLAME.z,
+                             Translate(glm::vec3(0.0f, -52.0f, 0.0f)) *
+                             Scale(glm::vec3(20.0f, flameHeight, 1.0f)),
+                 glm::vec4(PLAYER_FLAME.x, PLAYER_FLAME.y, PLAYER_FLAME.z,
                                PLAYER_FLAME.w * (0.55f + 0.45f * thrust)));
 
         m_shader->SetFloat("u_Falloff", 0.0f);
-        DrawMesh(m_playerMesh, Translate(Math::Vector3(m_playerPosition.x, m_playerPosition.y, 0.0f)) *
-                               RotateZ(m_playerRotation) * Scale(Math::Vector3(70.0f, 70.0f, 1.0f)));
+        DrawMesh(m_playerMesh, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y, 0.0f)) *
+                               RotateZ(m_playerRotation) * Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
     }
 
     // ---- 玩家子弹（最上层）----
     for (const auto& entity : m_entities) {
         if (entity.kind == EntityKind::PlayerBullet) {
-            DrawMesh(*entity.mesh, Translate(Math::Vector3(entity.position.x, entity.position.y, 0.08f)) *
+            DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, 0.08f)) *
                                    RotateZ(std::atan2(entity.velocity.x, entity.velocity.y)) *
-                                   Scale(Math::Vector3(70.0f, 70.0f, 1.0f)));
+                                   Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
         }
     }
 
     // ---- 受击红晕 / 暗角 ----
     m_shader->SetFloat("u_Falloff", 0.0f);
     if (m_hitFlash > 0.01f) {
-        DrawMesh(m_fullscreenMesh, Translate(Math::Vector3(0.0f, 0.0f, 1.0f)) *
-                                   Scale(Math::Vector3(m_halfWidth, m_halfHeight, 1.0f)),
-                 Math::Vector4(1.0f, 0.25f, 0.20f, 0.30f * m_hitFlash));
+        DrawMesh(m_fullscreenMesh, Translate(glm::vec3(0.0f, 0.0f, 1.0f)) *
+                                   Scale(glm::vec3(m_halfWidth, m_halfHeight, 1.0f)),
+                 glm::vec4(1.0f, 0.25f, 0.20f, 0.30f * m_hitFlash));
     }
-    DrawMesh(m_vignetteMesh, Translate(Math::Vector3(0.0f, m_halfHeight - 90.0f, 1.0f)) *
-                             Scale(Math::Vector3(m_halfWidth, 90.0f, 1.0f)),
-             Math::Vector4(0.0f, 0.0f, 0.0f, 0.35f));
-    DrawMesh(m_vignetteMesh, Translate(Math::Vector3(0.0f, -m_halfHeight + 90.0f, 1.0f)) *
-                             Scale(Math::Vector3(m_halfWidth, -90.0f, 1.0f)),
-             Math::Vector4(0.0f, 0.0f, 0.0f, 0.35f));
+    DrawMesh(m_vignetteMesh, Translate(glm::vec3(0.0f, m_halfHeight - 90.0f, 1.0f)) *
+                             Scale(glm::vec3(m_halfWidth, 90.0f, 1.0f)),
+             glm::vec4(0.0f, 0.0f, 0.0f, 0.35f));
+    DrawMesh(m_vignetteMesh, Translate(glm::vec3(0.0f, -m_halfHeight + 90.0f, 1.0f)) *
+                             Scale(glm::vec3(m_halfWidth, -90.0f, 1.0f)),
+             glm::vec4(0.0f, 0.0f, 0.0f, 0.35f));
 }
 
 void PlaneGameLayer::OnImGuiRender()

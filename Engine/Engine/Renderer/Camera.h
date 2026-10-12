@@ -7,8 +7,8 @@ namespace OiEngine {
 	public:
 		virtual ~Camera() = default;
 
-	    virtual Math::Vector3 GetPosition() const = 0;
-	    virtual Math::Matrix4 GetViewMatrix() const = 0;
-		virtual Math::Matrix4 GetProjectionMatrix() const = 0;
+	    virtual glm::vec3 GetPosition() const = 0;
+	    virtual glm::mat4 GetViewMatrix() const = 0;
+		virtual glm::mat4 GetProjectionMatrix() const = 0;
 	};
 }

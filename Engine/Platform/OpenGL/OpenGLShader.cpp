@@ -3,6 +3,7 @@
 #include <fstream>
 
 #include <glad/glad.h>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace OiEngine {
 	namespace {
@@ -197,34 +198,34 @@ namespace OiEngine {
 	    glUniform1f(location, value);
 	}
 
-	void OpenGLShader::SetFloat2(const std::string& name, const Math::Vector2& value)
+	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value)
 	{
         int location = GetLocationFromCache(name);
 	    glUniform2f(location, value.x, value.y);
 	}
 
-	void OpenGLShader::SetFloat3(const std::string& name, const Math::Vector3& value)
+	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value)
 	{
         int location = GetLocationFromCache(name);
 	    glUniform3f(location, value.x, value.y, value.z);
 	}
 
-	void OpenGLShader::SetFloat4(const std::string& name, const Math::Vector4& value)
+	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value)
 	{
         int location = GetLocationFromCache(name);
 	    glUniform4f(location, value.x, value.y, value.z, value.w);
 	}
 
-    void OpenGLShader::SetMat3(const std::string& name, const Math::Matrix3& value)
+    void OpenGLShader::SetMat3(const std::string& name, const glm::mat3& value)
 	{
         int location = GetLocationFromCache(name);
-	    glUniformMatrix3fv(location, 1, GL_FALSE, value.Data());
+	    glUniformMatrix3fv(location, 1, GL_FALSE, glm::value_ptr(value));
 	}
 
-	void OpenGLShader::SetMat4(const std::string& name, const Math::Matrix4& value)
+	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value)
 	{
         int location = GetLocationFromCache(name);
-	    glUniformMatrix4fv(location, 1, GL_FALSE, value.Data());
+	    glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(value));
 	}
 
     int OpenGLShader::GetLocationFromCache(const std::string &name)

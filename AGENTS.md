@@ -4,14 +4,14 @@
 
 - `Engine`：动态库（产物 `output/libEngine.dll`）
 - `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战与太阳系两个场景，F1/F2 切换）
-- 渲染后端 OpenGL（glad + glfw），日志 spdlog，图像加载 stb_image
+- 渲染后端 OpenGL（glad + glfw），日志 spdlog，图像加载 stb_image，数学库 glm
 
 ## 目录结构
 
 - `Engine/` — 库工程（include 根目录，见下）
   - `Engine/Engine/Core/` — `Base.h`（OI_API / OI_ASSERT / Scope / Ref）、`Log.h`、Application、Layer、LayerStack、Window、Input、Timer
   - `Engine/Engine/Events/` — 事件系统（Event、ApplicationEvent、KeyEvent、MouseEvent）
-  - `Engine/Engine/Math/` — 数学库（当前迭代重点，见下文）；总入口是 `Engine/Engine/Math.h`
+  - `Engine/Engine/Math/` — `Random` / `UUID` 工具类；几何数学已迁移至 glm（见下文），总入口是 `Engine/Engine/Math.h`
   - `Engine/Engine/Renderer/` — Renderer、Camera、Shader、Buffer、VertexArray、Framebuffer 等抽象
   - `Engine/Engine/UI/` — `ImGuiLayer`（Dear ImGui 封装，作为 overlay 由 Application 内置）
   - `Engine/Platform/` — `OpenGL/`、`Windows/` 平台实现
@@ -21,7 +21,7 @@
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
   - 两个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2 切换 `SetActive`
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm（glfw/spdlog/imgui/glm 登记为 git submodule）
-- `test/` — 数学库独立验证用例（不参与 CMake，被 .gitignore 忽略），用法见 `test/README.md`
+- `test/` — 原数学库验证用例已删除（详见 `test/README.md`）；不参与 CMake，被 .gitignore 忽略
 - `output/`、`build/` — 构建产物，不入库
 
 头文件包含：include 根是 `Engine/` 目录，写作 `#include "Engine/Core/Base.h"`、`#include "Platform/OpenGL/OpenGLContext.h"`。
@@ -42,15 +42,10 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 编译器路径记录在 `build/cmake-build-debug/CMakeCache.txt`（当前为 CLion 自带 MinGW GCC 15）
 - shell 是 Windows PowerShell 5.1：不支持 `&&` 和三元 `?:`；含逗号的链接参数（如 `-Wl,--out-implib,...`）需加引号
 
-## 测试（数学库）
+## 测试（数学）
 
-`test/` 下三个用例直接对头文件编译（不依赖 CMake）：`vector_ops_test.cpp`、`matrix_verify.cpp`、
-`dll_client_test.cpp`。全部通过时：向量用例 exit 0，矩阵用例输出 `ALL CHECKS PASSED`。
-具体命令见 `test/README.md`。改数学库后至少跑：
-
-```powershell
-c++ -std=c++23 -Wall -Wextra -I Engine -o "$env:TEMP\m.exe" test/matrix_verify.cpp; & "$env:TEMP\m.exe"
-```
+自建数学库已删除、全面改用 glm，原 `test/` 验证用例一并删除（见 `test/README.md`）。
+数学相关改动以全量构建 + SandBox 运行观察为准；可编译期验证的尽量写 `static_assert`。
 
 ## UI（Dear ImGui）
 
@@ -63,33 +58,30 @@ c++ -std=c++23 -Wall -Wextra -I Engine -o "$env:TEMP\m.exe" test/matrix_verify.c
 
 ## 代码约定
 
-- 命名：模板类型 `T` 前缀（`TVector3`、`TMatrix4x4`、`TQuaternion`）；宏 `OI_`；类成员 `m_` 前缀；类型别名 `Vector3f`、`Matrix4f`、`Point2f` 等
-- 风格：4 空格缩进，大括号不换行，`namespace OiEngine::Math {`；数学库尽量 `constexpr`、header-only（.cpp 仅 Random/UUID/平台代码）
+- 命名：宏 `OI_`；类成员 `m_` 前缀；数学类型直接用 glm 命名（`glm::vec3`、`glm::mat4` 等）
+- 风格：4 空格缩进，大括号不换行，`namespace OiEngine::Math {`
 - 注释：中文为主，glm 等来源的注释保留英文原文
-- `OI_API` 只用于**非模板类**（有 .cpp、需要跨 DLL 边界）；**模板类型不要加**——标了之后静态成员（`zero`/`identity`）在 DLL 客户端会因未导出而链接失败
+- `OI_API` 只用于**非模板类**（有 .cpp、需要跨 DLL 边界），如 `Random`、`UUID`；模板类型不要加（模板实例化的静态成员在 DLL 客户端无法链接）
 - 调试断言用 `OI_ASSERT(条件)`
 
-## 数学库要点（Engine/Engine/Math/）
+## 数学库（glm）
 
-设计仿 glm：成员运算符 + 同文件尾部的自由函数。
+自建 Vector / Matrix / Quaternion 已删除，全面改用 `vendor/glm`（submodule；默认以
+`GLM_BUILD_LIBRARY=ON` 编译出静态库 `libglm.a`，经 `Engine` target 以 PUBLIC 传递给 SandBox）。
 
-- 列主序；`TMatrix3x3/4x4` 内部是 `columns[N]`，`operator[]` 返回列
-- 语义：`matrix * vector` 为列向量、`vector * matrix` 为行向量；所有 `*` 都是**逐分量乘法**；点积用 `Dot()`
-- 运算符两层：
-  - 成员：复合赋值（`+= -= *= /= %= &= |= ^= <<= >>=`，标量版 `template<U>` + 向量版）、`++/--` 前置后置
-  - 自由函数：一元 `+ - ~`、二元 `+ - * / % & | ^ << >>` 各三种形式（`(v,scalar)`、`(scalar,v)`、`(v1,v2)`）、`== !=`
-- 标量参数类型可与元素类型不同（`template<typename T, typename U>`，内部 `static_cast<T>(scalar)`）
-- 几何函数 `Dot/Cross/Distance/Normalize` 仅浮点（`static_assert(std::numeric_limits<T>::is_iec559)`）
-- 四元数×向量在 `QuaternionGeometric.h`（vec4 旋转 xyz 并保留 w）；`MatrixGeometric.h` 目前为空占位
-- `Math.h` 为总入口：Vector2/3/4 → Matrix3x3/4x4 → Random/UUID → VectorGeometric → MatrixGeometric → QuaternionGeometric
+- `Engine/Engine/Math.h` = 引擎数学入口（包含 `<glm/glm.hpp>` 与 `Random`/`UUID`），被 `OiEngine.h` 一并包含
+- 类型直接用 `glm::vec2/3/4`、`glm::mat3/4`；几何运算用 `glm::dot/cross/normalize/length` 等
+- 变换函数 `glm::translate/rotate/scale/perspective/ortho/lookAt` 在 `<glm/gtc/matrix_transform.hpp>`；
+  上传 uniform 用 `glm::value_ptr`（`<glm/gtc/type_ptr.hpp>`）——两者都不在 `glm/glm.hpp` 里，需显式 include
+- 与 GLSL 一致：列主序；`m * v` 为列向量乘法；矩阵上传写作 `glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(m))`
+- 角度取弧度，度→弧度用 `glm::radians`
+- SandBox 的矩阵辅助（`RenderHelpers.h`）与太阳系相机（透视 / lookAt）直接用 glm 实现
 
-### 已知陷阱（都实际踩过）
+### 已知陷阱
 
-1. 自由运算符涉及自有类型（如矩阵）时，参数**必须写成可直接推导的类型**（`const TVectorN<T>&`），不能写 `typename TMatrix<T>::ColType` 这类非推导上下文——否则与泛型标量重载无法偏序比较，`m * v` / `v * m` 会二义（对应位置已有注释）
-2. `zero` / `identity` 是 `static const`（不是 constexpr），**不能用于 static_assert**；常量场景用 `Matrix4(1.0f)` 构造
-3. 向量 `operator[]` 实现为 `(&x)[i]`（指针算术），矩阵×向量内部用到它 → `m * v` **不能用于常量表达式**（`v * m`、`m * m` 可以）；需要全 constexpr 矩阵运算时先改 `operator[]` 实现
-4. 模板类型不要加 `OI_API`（原因见「代码约定」）
-5. 向量构造函数只填前几个分量，其余为 0：`Vector4(1.0f)` 是 **(1, 0, 0, 0)**（只有 x），不是白色。渲染 tint / 颜色默认值必须写全分量 `Vector4(1.0f, 1.0f, 1.0f, 1.0f)`，否则 alpha 为 0 会被 `discard`。`Matrix4(1.0f)` 例外——填充对角线，是单位阵
+1. `glm::vec4(1.0f)` 只填 x，值是 **(1, 0, 0, 0)**（不是白色）。颜色 / tint 默认值必须写全分量
+   `glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)`，否则 alpha 为 0 会被着色器 `discard`。`glm::mat4(1.0f)` 例外——单位阵
+2. 扩展功能不在 `glm/glm.hpp`（见上述 matrix_transform / type_ptr），用到时忘 include 会以缺失符号报错
 
 ## Git / 其他
 
@@ -99,6 +91,6 @@ c++ -std=c++23 -Wall -Wextra -I Engine -o "$env:TEMP\m.exe" test/matrix_verify.c
 
 ## 协作习惯
 
-- 改动后做**验证**：全量构建通过 + 用 `test/` 用例数值校验；可编译期验证的尽量 `static_assert`
+- 改动后做**验证**：全量构建通过 + SandBox 运行观察；可编译期验证的尽量 `static_assert`
 - 回复用中文，结论先行，专业名词保留英文
 - 发现明显 bug 可以顺手修复并说明（用户接受「修复 + 报告」的方式）；改动保持与现有风格一致、尽量最小

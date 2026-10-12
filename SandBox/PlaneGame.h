@@ -12,9 +12,9 @@ namespace OiEngine::SandBox {
     // 正交相机：world 单位与屏幕像素 1:1 对应，1 世界单位 = 1 像素
     class PlaneGameCamera : public Camera {
     public:
-        Math::Vector3 GetPosition() const override;
-        Math::Matrix4 GetViewMatrix() const override;
-        Math::Matrix4 GetProjectionMatrix() const override;
+        glm::vec3 GetPosition() const override;
+        glm::mat4 GetViewMatrix() const override;
+        glm::mat4 GetProjectionMatrix() const override;
     };
 
     class PlaneGameLayer : public Layer {
@@ -57,8 +57,8 @@ namespace OiEngine::SandBox {
 
         struct Entity {
             EntityKind kind = EntityKind::Particle;
-            Math::Vector2 position;
-            Math::Vector2 velocity;
+            glm::vec2 position;
+            glm::vec2 velocity;
             float rotation = 0.0f;      // 弧度
             float scale = 1.0f;
             float radius = 0.0f;        // 碰撞半径（世界单位）
@@ -67,32 +67,32 @@ namespace OiEngine::SandBox {
             float spin = 0.0f;          // 角速度（粒子旋转）
             float wave = 0.0f;          // 摆动相位（敌机）
             float fireCooldown = 0.0f;
-            Math::Vector4 color = Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+            glm::vec4 color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
             const Ref<VertexArray>* mesh = nullptr;
         };
 
         struct Effect {
             EffectKind kind = EffectKind::Ring;
-            Math::Vector2 position;
+            glm::vec2 position;
             float radius = 0.0f;
             float lifetime = 0.3f;
             float age = 0.0f;
-            Math::Vector4 color = Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+            glm::vec4 color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
             float thickness = 3.0f;
         };
 
         struct Star {
-            Math::Vector2 position;
+            glm::vec2 position;
             float speed = 0.0f;
             float size = 0.0f;
-            Math::Vector4 color = Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+            glm::vec4 color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
         };
 
         struct Nebula {
-            Math::Vector2 position;
+            glm::vec2 position;
             float speed = 0.0f;
             float scale = 1.0f;
-            Math::Vector4 color = Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+            glm::vec4 color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
         };
 
         // ---- 资源创建 ----
@@ -109,21 +109,21 @@ namespace OiEngine::SandBox {
         void UpdateBackground(float deltaTime);
         void UpdateSpawning(float deltaTime);
         void RebuildStarVertices();
-        void SpawnEnemy(EntityKind kind, const Math::Vector2& position);
+        void SpawnEnemy(EntityKind kind, const glm::vec2& position);
         void SpawnFighterShot();                 // 玩家机翼双发
         void SpawnEnemyShot(const Entity& enemy); // 敌机根据类型开火
-        void SpawnExplosion(const Math::Vector2& position, const Math::Vector4& color,
+        void SpawnExplosion(const glm::vec2& position, const glm::vec4& color,
                             float radius, bool large);
-        void SpawnPlayerDeath(const Math::Vector2& position);
+        void SpawnPlayerDeath(const glm::vec2& position);
         void KillEnemy(uint32_t index);
         void HitPlayer();
         void AddScore(int points);
 
         // ---- 渲染 ----
-        // 注意 tint 默认值必须写全分量：Vector4(1.0f) 是 (1,0,0,0)，alpha 为 0 会导致整批绘制被 discard
-        void DrawMesh(const Ref<VertexArray>& mesh, const Math::Matrix4& transform,
-                      const Math::Vector4& tint = Math::Vector4(1.0f, 1.0f, 1.0f, 1.0f), float lineWidth = 0.0f);
-        void RenderWorld(const Math::Matrix4& viewOffset);
+        // 注意 tint 默认值必须写全分量：glm::vec4(1.0f) 是 (1,0,0,0)，alpha 为 0 会导致整批绘制被 discard
+        void DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& transform,
+                      const glm::vec4& tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), float lineWidth = 0.0f);
+        void RenderWorld(const glm::mat4& viewOffset);
         void RenderHud();  // ImGui 界面（得分 / 生命 / 暂停 / 结束）
 
         // ---- 状态 ----
@@ -135,8 +135,8 @@ namespace OiEngine::SandBox {
         float m_shake = 0.0f;       // 受击震屏强度，随时间衰减
 
         // 玩家
-        Math::Vector2 m_playerPosition;
-        Math::Vector2 m_playerVelocity;
+        glm::vec2 m_playerPosition;
+        glm::vec2 m_playerVelocity;
         float m_playerRotation = 0.0f;
         int m_lives = 3;
         float m_invulnerable = 0.0f;   // 无敌剩余时间（秒）

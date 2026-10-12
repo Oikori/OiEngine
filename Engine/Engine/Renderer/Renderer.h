@@ -15,12 +15,12 @@ namespace OiEngine {
 		static void BeginScene(Camera& camera);
 		static void EndScene();
 
-		static void Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const Math::Matrix4& transform = Math::Matrix4(1.0f));
+		static void Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
 	private:
 	    struct SceneData {
-	        Math::Vector3 cameraPosition;
-	        Math::Matrix4 viewMatrix;
-	        Math::Matrix4 projectionMatrix;
+	        glm::vec3 cameraPosition;
+	        glm::mat4 viewMatrix;
+	        glm::mat4 projectionMatrix;
 		};
 
 		static Scope<SceneData> s_sceneData;

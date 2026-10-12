@@ -35,7 +35,7 @@ namespace OiEngine {
 	{
 	}
 
-	void Renderer::Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const Math::Matrix4& transform)
+	void Renderer::Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
 	    shader->Bind();
 	    shader->SetFloat3("u_cameraPosition", s_sceneData->cameraPosition);

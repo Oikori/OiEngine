@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 using namespace OiEngine;
 
 namespace {
@@ -15,45 +17,10 @@ namespace {
     constexpr uint32_t SPHERE_RINGS = 24;     // 球体纬度分段
     constexpr uint32_t ORBIT_SEGMENTS = 256;  // 轨道圆分段
 
-    // ---------- 数学辅助（引擎数学库暂未提供这些运算） ----------
-
-    // 列主序（column-major）的透视投影矩阵
-    Math::Matrix4 Perspective(float fovY, float aspect, float nearPlane, float farPlane)
-    {
-        const float tanHalf = std::tan(fovY * 0.5f);
-        return Math::Matrix4(
-            Math::Vector4(1.0f / (aspect * tanHalf), 0.0f, 0.0f, 0.0f),
-            Math::Vector4(0.0f, 1.0f / tanHalf, 0.0f, 0.0f),
-            Math::Vector4(0.0f, 0.0f, -(farPlane + nearPlane) / (farPlane - nearPlane), -1.0f),
-            Math::Vector4(0.0f, 0.0f, -2.0f * farPlane * nearPlane / (farPlane - nearPlane), 0.0f));
-    }
-
-    // 列主序（column-major）的视图矩阵
-    Math::Matrix4 LookAt(const Math::Vector3& eye, const Math::Vector3& center, const Math::Vector3& up)
-    {
-        const Math::Vector3 f = Math::Normalize(center - eye);
-        const Math::Vector3 s = Math::Normalize(Math::Cross(f, up));
-        const Math::Vector3 u = Math::Cross(s, f);
-        return Math::Matrix4(
-            Math::Vector4(s.x, u.x, -f.x, 0.0f),
-            Math::Vector4(s.y, u.y, -f.y, 0.0f),
-            Math::Vector4(s.z, u.z, -f.z, 0.0f),
-            Math::Vector4(-Math::Dot(s, eye), -Math::Dot(u, eye), Math::Dot(f, eye), 1.0f));
-    }
-
-    Math::Matrix4 Translation(const Math::Vector3& t)
-    {
-        return Math::Matrix4(
-            Math::Vector4(1.0f, 0.0f, 0.0f, 0.0f),
-            Math::Vector4(0.0f, 1.0f, 0.0f, 0.0f),
-            Math::Vector4(0.0f, 0.0f, 1.0f, 0.0f),
-            Math::Vector4(t.x, t.y, t.z, 1.0f));
-    }
-
     // ---------- 网格生成 ----------
 
     // 顶点格式：位置 (Float3) + 颜色 (Float4)，共 7 个 float
-    void PushVertex(std::vector<float>& vertices, const Math::Vector3& position, const Math::Vector4& color)
+    void PushVertex(std::vector<float>& vertices, const glm::vec3& position, const glm::vec4& color)
     {
         vertices.push_back(position.x);
         vertices.push_back(position.y);
@@ -65,14 +32,14 @@ namespace {
     }
 
     // UV 球体网格（球心位于局部原点，半径已烘焙进顶点，便于变换矩阵直接用平移）
-    void AppendSphere(std::vector<float>& vertices, std::vector<uint32_t>& indices, float radius, const Math::Vector4& color)
+    void AppendSphere(std::vector<float>& vertices, std::vector<uint32_t>& indices, float radius, const glm::vec4& color)
     {
         for (uint32_t ring = 0; ring <= SPHERE_RINGS; ++ring) {
             const float phi = PI * static_cast<float>(ring) / SPHERE_RINGS;  // 0（北极）-> PI（南极）
             for (uint32_t segment = 0; segment <= SPHERE_SEGMENTS; ++segment) {
                 const float theta = 2.0f * PI * static_cast<float>(segment) / SPHERE_SEGMENTS;
                 PushVertex(vertices,
-                    Math::Vector3(radius * std::sin(phi) * std::cos(theta),
+                    glm::vec3(radius * std::sin(phi) * std::cos(theta),
                                   radius * std::cos(phi),
                                   radius * std::sin(phi) * std::sin(theta)),
                     color);
@@ -95,14 +62,14 @@ namespace {
 
     // 平面圆环网格（位于 XZ 平面，用于土星环）
     void AppendRing(std::vector<float>& vertices, std::vector<uint32_t>& indices,
-                    float innerRadius, float outerRadius, const Math::Vector4& color)
+                    float innerRadius, float outerRadius, const glm::vec4& color)
     {
         for (uint32_t segment = 0; segment <= SPHERE_SEGMENTS; ++segment) {
             const float angle = 2.0f * PI * static_cast<float>(segment) / SPHERE_SEGMENTS;
             const float c = std::cos(angle);
             const float s = std::sin(angle);
-            PushVertex(vertices, Math::Vector3(c * innerRadius, 0.0f, s * innerRadius), color);
-            PushVertex(vertices, Math::Vector3(c * outerRadius, 0.0f, s * outerRadius), color);
+            PushVertex(vertices, glm::vec3(c * innerRadius, 0.0f, s * innerRadius), color);
+            PushVertex(vertices, glm::vec3(c * outerRadius, 0.0f, s * outerRadius), color);
         }
 
         for (uint32_t segment = 0; segment < SPHERE_SEGMENTS; ++segment) {
@@ -259,42 +226,42 @@ namespace {
     struct PlanetDefinition {
         float orbitRadius;
         float radius;
-        Math::Vector4 color;
+        glm::vec4 color;
         float angularSpeed;
         float startAngle;
         bool hasRing;
     };
 
     const PlanetDefinition PLANETS[] = {
-        {  2.2f, 0.13f, Math::Vector4(0.72f, 0.68f, 0.62f, 1.0f), 0.650f, 0.0f, false },  // 水星
-        {  3.0f, 0.20f, Math::Vector4(0.93f, 0.76f, 0.42f, 1.0f), 0.420f, 1.9f, false },  // 金星
-        {  3.9f, 0.22f, Math::Vector4(0.25f, 0.50f, 0.90f, 1.0f), 0.300f, 3.6f, false },  // 地球
-        {  4.9f, 0.17f, Math::Vector4(0.85f, 0.38f, 0.22f, 1.0f), 0.220f, 5.1f, false },  // 火星
-        {  6.8f, 0.44f, Math::Vector4(0.88f, 0.72f, 0.55f, 1.0f), 0.120f, 2.4f, false },  // 木星
-        {  8.6f, 0.36f, Math::Vector4(0.85f, 0.78f, 0.58f, 1.0f), 0.085f, 4.3f, true  },  // 土星（带环）
-        { 10.4f, 0.26f, Math::Vector4(0.55f, 0.82f, 0.88f, 1.0f), 0.060f, 0.9f, false },  // 天王星
-        { 12.0f, 0.25f, Math::Vector4(0.30f, 0.42f, 0.88f, 1.0f), 0.048f, 5.8f, false },  // 海王星
+        {  2.2f, 0.13f, glm::vec4(0.72f, 0.68f, 0.62f, 1.0f), 0.650f, 0.0f, false },  // 水星
+        {  3.0f, 0.20f, glm::vec4(0.93f, 0.76f, 0.42f, 1.0f), 0.420f, 1.9f, false },  // 金星
+        {  3.9f, 0.22f, glm::vec4(0.25f, 0.50f, 0.90f, 1.0f), 0.300f, 3.6f, false },  // 地球
+        {  4.9f, 0.17f, glm::vec4(0.85f, 0.38f, 0.22f, 1.0f), 0.220f, 5.1f, false },  // 火星
+        {  6.8f, 0.44f, glm::vec4(0.88f, 0.72f, 0.55f, 1.0f), 0.120f, 2.4f, false },  // 木星
+        {  8.6f, 0.36f, glm::vec4(0.85f, 0.78f, 0.58f, 1.0f), 0.085f, 4.3f, true  },  // 土星（带环）
+        { 10.4f, 0.26f, glm::vec4(0.55f, 0.82f, 0.88f, 1.0f), 0.060f, 0.9f, false },  // 天王星
+        { 12.0f, 0.25f, glm::vec4(0.30f, 0.42f, 0.88f, 1.0f), 0.048f, 5.8f, false },  // 海王星
     };
 }
 
 // ---------- SolarSystemCamera ----------
 
-Math::Vector3 SolarSystemCamera::GetPosition() const
+glm::vec3 SolarSystemCamera::GetPosition() const
 {
-    return Math::Vector3(0.0f, 11.0f, 19.0f);
+    return glm::vec3(0.0f, 11.0f, 19.0f);
 }
 
-Math::Matrix4 SolarSystemCamera::GetViewMatrix() const
+glm::mat4 SolarSystemCamera::GetViewMatrix() const
 {
-    return LookAt(GetPosition(), Math::Vector3(0.0f, 0.0f, 0.0f), Math::Vector3(0.0f, 1.0f, 0.0f));
+    return glm::lookAt(GetPosition(), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
-Math::Matrix4 SolarSystemCamera::GetProjectionMatrix() const
+glm::mat4 SolarSystemCamera::GetProjectionMatrix() const
 {
     const uint32_t width = Application::Get().GetWindow().GetWidth();
     const uint32_t height = Application::Get().GetWindow().GetHeight();
     const float aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 16.0f / 9.0f;
-    return Perspective(45.0f * PI / 180.0f, aspect, 0.1f, 100.0f);
+    return glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
 }
 
 // ---------- SolarSystemLayer ----------
@@ -309,7 +276,7 @@ void SolarSystemLayer::OnAttach()
     {
         std::vector<float> vertices;
         std::vector<uint32_t> indices;
-        AppendSphere(vertices, indices, 1.0f, Math::Vector4(1.0f, 0.88f, 0.42f, 1.0f));
+        AppendSphere(vertices, indices, 1.0f, glm::vec4(1.0f, 0.88f, 0.42f, 1.0f));
         m_sunMesh = CreateMesh(vertices, indices);
     }
 
@@ -317,7 +284,7 @@ void SolarSystemLayer::OnAttach()
     {
         std::vector<float> vertices;
         std::vector<uint32_t> indices;
-        AppendSphere(vertices, indices, 1.35f, Math::Vector4(1.0f, 0.72f, 0.26f, 0.55f));
+        AppendSphere(vertices, indices, 1.35f, glm::vec4(1.0f, 0.72f, 0.26f, 0.55f));
         m_glowMesh = CreateMesh(vertices, indices);
     }
 
@@ -338,7 +305,7 @@ void SolarSystemLayer::OnAttach()
             std::vector<uint32_t> ringIndices;
             AppendRing(ringVertices, ringIndices,
                        definition.radius * 1.5f, definition.radius * 2.3f,
-                       Math::Vector4(0.82f, 0.76f, 0.58f, 1.0f));
+                       glm::vec4(0.82f, 0.76f, 0.58f, 1.0f));
             body.ringMesh = CreateMesh(ringVertices, ringIndices);
         }
 
@@ -348,16 +315,16 @@ void SolarSystemLayer::OnAttach()
     // 所有行星的轨道线合并为一个顶点数组，一次绘制
     {
         std::vector<float> vertices;
-        const Math::Vector4 orbitColor(0.42f, 0.48f, 0.62f, 0.4f);
+        const glm::vec4 orbitColor(0.42f, 0.48f, 0.62f, 0.4f);
         for (const auto& definition : PLANETS) {
             for (uint32_t segment = 0; segment < ORBIT_SEGMENTS; ++segment) {
                 const float angle0 = 2.0f * PI * static_cast<float>(segment) / ORBIT_SEGMENTS;
                 const float angle1 = 2.0f * PI * static_cast<float>(segment + 1) / ORBIT_SEGMENTS;
                 PushVertex(vertices,
-                    Math::Vector3(std::cos(angle0) * definition.orbitRadius, 0.0f, std::sin(angle0) * definition.orbitRadius),
+                    glm::vec3(std::cos(angle0) * definition.orbitRadius, 0.0f, std::sin(angle0) * definition.orbitRadius),
                     orbitColor);
                 PushVertex(vertices,
-                    Math::Vector3(std::cos(angle1) * definition.orbitRadius, 0.0f, std::sin(angle1) * definition.orbitRadius),
+                    glm::vec3(std::cos(angle1) * definition.orbitRadius, 0.0f, std::sin(angle1) * definition.orbitRadius),
                     orbitColor);
             }
         }
@@ -365,7 +332,7 @@ void SolarSystemLayer::OnAttach()
         m_orbitVertexCount = static_cast<uint32_t>(vertices.size() / 7);
     }
 
-    RenderCommand::SetClearColor(Math::Vector4(0.02f, 0.02f, 0.05f, 1.0f));
+    RenderCommand::SetClearColor(glm::vec4(0.02f, 0.02f, 0.05f, 1.0f));
 
     std::cout << "SolarSystem OnAttach" << std::endl;
 }
@@ -390,30 +357,30 @@ void SolarSystemLayer::OnUpdate()
     // 按公转角速度更新行星位置（XZ 平面上的圆周运动）
     for (auto& planet : m_planets) {
         const float angle = planet.startAngle + planet.angularSpeed * elapsed;
-        planet.position = Math::Vector3(std::cos(angle) * planet.orbitRadius,
+        planet.position = glm::vec3(std::cos(angle) * planet.orbitRadius,
                                         0.0f,
                                         std::sin(angle) * planet.orbitRadius);
     }
 
     // 1. 轨道线
-    UseUnlitShader(Math::Matrix4(1.0f));
+    UseUnlitShader(glm::mat4(1.0f));
     RenderCommand::DrawLines(m_orbitMesh, m_orbitVertexCount);
 
     // 2. 太阳（均匀发光，不走光照）
-    UseUnlitShader(Math::Matrix4(1.0f));
+    UseUnlitShader(glm::mat4(1.0f));
     RenderCommand::DrawIndexed(m_sunMesh);
 
     // 3. 行星（Lambert 光照体现球体体积感）
     Renderer::BeginScene(m_camera);
     for (const auto& planet : m_planets) {
-        Renderer::Submit(m_litShader, planet.mesh, Translation(planet.position));
+        Renderer::Submit(m_litShader, planet.mesh, glm::translate(glm::mat4(1.0f), planet.position));
     }
     Renderer::EndScene();
 
     // 4. 土星环
     for (const auto& planet : m_planets) {
         if (planet.ringMesh) {
-            UseUnlitShader(Translation(planet.position));
+            UseUnlitShader(glm::translate(glm::mat4(1.0f), planet.position));
             RenderCommand::DrawIndexed(planet.ringMesh);
         }
     }
@@ -456,7 +423,7 @@ void SolarSystemLayer::OnImGuiRender()
 void SolarSystemLayer::OnEvent(Event& event) {}
 
 // 轨道线、环等几何不参与光照，需要手动设置相机的 uniform
-void SolarSystemLayer::UseUnlitShader(const Math::Matrix4& transform)
+void SolarSystemLayer::UseUnlitShader(const glm::mat4& transform)
 {
     m_unlitShader->Bind();
     m_unlitShader->SetMat4("u_Transform", transform);

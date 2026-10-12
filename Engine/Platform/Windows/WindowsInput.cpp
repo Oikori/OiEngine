@@ -18,7 +18,7 @@ namespace OiEngine {
 		return state == GLFW_PRESS;
 	}
 
-	Math::Vector2 Input::GetMousePosition()
+	glm::vec2 Input::GetMousePosition()
 	{
 		auto* window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		double xpos, ypos;
