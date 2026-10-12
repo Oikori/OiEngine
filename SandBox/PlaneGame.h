@@ -32,13 +32,15 @@ namespace OiEngine::SandBox {
         bool IsActive() const { return m_active; }
 
     private:
-        // 实体类型决定更新行为；子弹/粒子只做匀速移动
+        // 实体类型决定更新行为：普通/敌方子弹与粒子做匀速移动，玩家导弹沿当前朝向追踪锁定目标
         enum class EntityKind {
-            PlayerBullet,
+            PlayerBullet,     // 玩家普通子弹（默认武器）
+            PlayerMissile,    // 玩家跟踪导弹（限时武器）
             EnemyA,
             EnemyB,
             EnemyC,
             EnemyBullet,
+            Pickup,           // 导弹补给（大型敌机掉落）
             Particle
         };
 
@@ -57,6 +59,8 @@ namespace OiEngine::SandBox {
 
         struct Entity {
             EntityKind kind = EntityKind::Particle;
+            uint32_t id = 0;            // 敌机编号（唯一，供导弹锁定；其它实体恒为 0）
+            uint32_t targetId = 0;      // 导弹锁定的敌机编号（0 = 未锁定）
             glm::vec2 position;
             glm::vec2 velocity;
             float rotation = 0.0f;      // 弧度
@@ -110,7 +114,10 @@ namespace OiEngine::SandBox {
         void UpdateSpawning(float deltaTime);
         void RebuildStarVertices();
         void SpawnEnemy(EntityKind kind, const glm::vec2& position);
-        void SpawnFighterShot();                 // 玩家机翼双发
+        void SpawnFighterShot();                 // 玩家机翼双发普通子弹
+        void SpawnFighterMissiles();             // 玩家机翼双发追踪导弹
+        void SpawnPickup(const glm::vec2& position);      // 掉落导弹补给
+        void SpawnPickupFlash(const glm::vec2& position); // 拾取补给的效果
         void SpawnEnemyShot(const Entity& enemy); // 敌机根据类型开火
         void SpawnExplosion(const glm::vec2& position, const glm::vec4& color,
                             float radius, bool large);
@@ -118,6 +125,7 @@ namespace OiEngine::SandBox {
         void KillEnemy(uint32_t index);
         void HitPlayer();
         void AddScore(int points);
+        static bool IsEnemy(EntityKind kind);    // 是否为敌机类型
 
         // ---- 渲染 ----
         // 注意 tint 默认值必须写全分量：glm::vec4(1.0f) 是 (1,0,0,0)，alpha 为 0 会导致整批绘制被 discard
@@ -141,6 +149,7 @@ namespace OiEngine::SandBox {
         int m_lives = 3;
         float m_invulnerable = 0.0f;   // 无敌剩余时间（秒）
         float m_fireCooldown = 0.0f;
+        float m_missileTime = 0.0f;    // 追踪导弹剩余时间（秒，> 0 时使用导弹）
         float m_hitFlash = 0.0f;       // 受击红屏，随时间衰减
 
         // 全局
@@ -152,6 +161,7 @@ namespace OiEngine::SandBox {
         int m_highScore = 0;
         int m_combo = 1;               // 连击倍率，击杀累积、超时重置
         float m_comboTimer = 0.0f;
+        uint32_t m_nextEnemyId = 1;    // 敌机编号发号器（导弹锁定用）
 
         // 世界边界（由窗口宽高决定，居中于原点；正上方为 +Y）
         float m_halfHeight = 540.0f;
@@ -164,6 +174,8 @@ namespace OiEngine::SandBox {
         Ref<VertexArray> m_enemyBMesh;
         Ref<VertexArray> m_enemyCMesh;
         Ref<VertexArray> m_playerBulletMesh;
+        Ref<VertexArray> m_playerMissileMesh;
+        Ref<VertexArray> m_pickupMesh;
         Ref<VertexArray> m_enemyBulletMesh;
         Ref<VertexArray> m_enemyBulletHeavyMesh;
         Ref<VertexArray> m_ringMesh;

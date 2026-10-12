@@ -64,6 +64,12 @@ cmake --preset mingw-debug      # 或 mingw-release
 - `OI_API` 只用于**非模板类**（有 .cpp、需要跨 DLL 边界），如 `Random`、`UUID`；模板类型不要加（模板实例化的静态成员在 DLL 客户端无法链接）
 - 调试断言用 `OI_ASSERT(条件)`
 
+## 渲染：2D 场景的 z 约定
+
+- 正交投影 near=-10 / far=10 时 NDC z = -z/10，即**z 越大越靠前**（SandBox 里特效 0.1~0.2 > 投射物 0.08 > 玩家 0 > 敌机 -0.05 > 背景 -1/-2 就是按此排的）
+- 深度测试为 GL_LESS：**同 z 的重叠几何只保留先画的**。做「底盘 + 图标/亮芯」这类覆盖时必须显式错开 z，
+  例如 `builder.AddPolygon(points, color, 0.02f)` 或"光晕的 z 比本体小一点"，否则上层部件会被剔除、只看到底盘
+
 ## 数学库（glm）
 
 自建 Vector / Matrix / Quaternion 已删除，全面改用 `vendor/glm`（submodule；默认以

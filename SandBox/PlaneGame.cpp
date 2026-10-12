@@ -25,6 +25,12 @@ namespace {
     const glm::vec4 PLAYER_TAIL(0.24f, 0.32f, 0.44f, 1.0f);
     const glm::vec4 PLAYER_FLAME(0.40f, 0.85f, 1.00f, 0.85f);
 
+    const glm::vec4 MISSILE_BODY(0.80f, 0.84f, 0.92f, 1.00f);
+    const glm::vec4 MISSILE_NOSE(1.00f, 0.58f, 0.26f, 1.00f);
+    const glm::vec4 MISSILE_FIN(0.50f, 0.58f, 0.72f, 1.00f);
+    const glm::vec4 MISSILE_CORE(1.00f, 0.92f, 0.60f, 1.00f);
+    const glm::vec4 PICKUP_BASE(0.16f, 0.52f, 0.70f, 1.00f);
+
     const glm::vec4 ENEMY_A_BODY(0.92f, 0.28f, 0.24f, 1.0f);
     const glm::vec4 ENEMY_A_TRIM(0.62f, 0.16f, 0.16f, 1.0f);
     const glm::vec4 ENEMY_A_CORE(1.00f, 0.88f, 0.55f, 1.0f);
@@ -48,6 +54,32 @@ namespace {
     int RandomInt(int min, int max)
     {
         return std::uniform_int_distribution<int>(min, max)(g_rng);
+    }
+
+    // ---------- 玩家追踪导弹参数 ----------
+    constexpr float MISSILE_SPEED = 600.0f;        // 巡航速度（世界单位/秒）
+    constexpr float MISSILE_TURN_RATE = 3.4f;      // 最大转向角速度（弧度/秒）
+    constexpr float MISSILE_LOCK_RANGE = 460.0f;   // 索敌半径（世界单位）
+    constexpr float MISSILE_LOSE_RANGE = 680.0f;   // 目标超出该距离时放弃锁定
+    constexpr float MISSILE_LOCK_CONE = 0.26f;     // 索敌锥角余弦（约机头前方 ±75°）
+    constexpr float MISSILE_LIFETIME = 4.5f;       // 寿命（秒），超时自毁
+    constexpr float MISSILE_DURATION = 10.0f;      // 拾取补给后的导弹模式时长（秒）
+
+    // ---------- 导弹补给参数 ----------
+    constexpr float PICKUP_FALL_SPEED = 95.0f;     // 下落速度（世界单位/秒）
+    constexpr float PICKUP_WOBBLE_SPEED = 42.0f;   // 左右摆动的横向速度振幅
+    constexpr float PICKUP_LIFETIME = 12.0f;       // 存在时间（秒），未拾取则消失
+
+    // 投射物朝向换算：rotation 与绘制用 RotateZ 同一约定（+Y 为机头，绕 Z 逆时针），
+    // 故朝向向量为 (-sin, cos)，世界方向对应的朝向角为 atan2(-x, y)
+    glm::vec2 HeadingVector(float rotation)
+    {
+        return glm::vec2(-std::sin(rotation), std::cos(rotation));
+    }
+
+    float HeadingAngle(const glm::vec2& direction)
+    {
+        return std::atan2(-direction.x, direction.y);
     }
 
     // ---------- 程序化几何 ----------
@@ -237,6 +269,41 @@ namespace {
         return BuildMesh(builder);
     }
 
+    // 玩家追踪导弹：细长弹体 + 弹头 + 尾翼，加一条亮芯便于在暗背景下识别
+    Ref<VertexArray> CreatePlayerMissileMesh()
+    {
+        MeshBuilder builder;
+        builder.AddPolygon({
+            { 0.0f, 0.34f }, { 0.05f, 0.20f }, { 0.05f, -0.26f },
+            { 0.0f, -0.33f }, { -0.05f, -0.26f }, { -0.05f, 0.20f },
+        }, MISSILE_BODY);
+        builder.AddPolygon({ { 0.0f, 0.47f }, { 0.05f, 0.18f }, { -0.05f, 0.18f } }, MISSILE_NOSE);
+        builder.AddTriangle({ 0.04f, -0.14f }, { 0.16f, -0.34f }, { 0.05f, -0.34f }, MISSILE_FIN);
+        builder.AddTriangle({ -0.04f, -0.14f }, { -0.05f, -0.34f }, { -0.16f, -0.34f }, MISSILE_FIN);
+        AddVerticalRect(builder, 0.016f, 0.18f, MISSILE_CORE, MISSILE_CORE, 0.01f);  // 抬高 z 避免被弹体遮挡
+        return BuildMesh(builder);
+    }
+
+    // 导弹补给：青色八角底盘 + 内部导弹剪影（图标保持正立，靠光晕脉冲提示可拾取）
+    // 图标相对底盘抬高一点 z：同 z 的重叠几何会被深度测试剔除
+    Ref<VertexArray> CreateMissilePickupMesh()
+    {
+        constexpr float DIAGONAL = 0.3535f;  // 45° 方向的半径（0.5 * sqrt(2)/2 取整）
+        MeshBuilder builder;
+        builder.AddPolygon({
+            { 0.0f, 0.5f }, { DIAGONAL, DIAGONAL }, { 0.5f, 0.0f }, { DIAGONAL, -DIAGONAL },
+            { 0.0f, -0.5f }, { -DIAGONAL, -DIAGONAL }, { -0.5f, 0.0f }, { -DIAGONAL, DIAGONAL },
+        }, PICKUP_BASE);
+        builder.AddPolygon({
+            { 0.0f, 0.24f }, { 0.055f, 0.12f }, { 0.055f, -0.14f },
+            { 0.0f, -0.20f }, { -0.055f, -0.14f }, { -0.055f, 0.12f },
+        }, MISSILE_BODY, 0.02f);
+        builder.AddPolygon({ { 0.0f, 0.32f }, { 0.055f, 0.08f }, { -0.055f, 0.08f } }, MISSILE_NOSE, 0.02f);
+        builder.AddTriangle({ 0.045f, -0.06f }, { 0.15f, -0.24f }, { 0.055f, -0.24f }, MISSILE_FIN, 0.02f);
+        builder.AddTriangle({ -0.045f, -0.06f }, { -0.055f, -0.24f }, { -0.15f, -0.24f }, MISSILE_FIN, 0.02f);
+        return BuildMesh(builder);
+    }
+
     Ref<VertexArray> CreateEnemyBulletSprite(const glm::vec4& color)
     {
         MeshBuilder builder;
@@ -382,6 +449,8 @@ void PlaneGameLayer::CreateMeshes()
     m_enemyBMesh = CreateEnemyBMesh();
     m_enemyCMesh = CreateEnemyCMesh();
     m_playerBulletMesh = CreatePlayerBulletMesh();
+    m_playerMissileMesh = CreatePlayerMissileMesh();
+    m_pickupMesh = CreateMissilePickupMesh();
     m_enemyBulletMesh = CreateEnemyBulletSprite(ENEMY_BULLET_A);
     m_enemyBulletHeavyMesh = CreateEnemyBulletSprite(ENEMY_BULLET_C);
     m_ringMesh = CreateRingMesh();
@@ -471,6 +540,8 @@ void PlaneGameLayer::ResetGame()
     m_playerPosition = glm::vec2(0.0f, -m_halfHeight + 110.0f);
     m_playerVelocity = glm::vec2(0.0f, 0.0f);
     m_playerRotation = 0.0f;
+    m_missileTime = 0.0f;
+    m_nextEnemyId = 1;
     m_entities.clear();
     m_effects.clear();
 }
@@ -524,6 +595,7 @@ void PlaneGameLayer::SpawnEnemy(EntityKind kind, const glm::vec2& position)
 {
     Entity enemy;
     enemy.kind = kind;
+    enemy.id = m_nextEnemyId++;
     enemy.position = position;
 
     switch (kind) {
@@ -553,7 +625,7 @@ void PlaneGameLayer::SpawnEnemy(EntityKind kind, const glm::vec2& position)
 
 void PlaneGameLayer::SpawnFighterShot()
 {
-    // 双发从左右机翼位置射出，随玩家朝向旋转
+    // 双发普通子弹：出膛位置随玩家朝向旋转，弹道基本笔直（带少量外扩）
     const float cosR = std::cos(m_playerRotation);
     const float sinR = std::sin(m_playerRotation);
     const float wingX = 0.30f * 70.0f;
@@ -570,6 +642,62 @@ void PlaneGameLayer::SpawnFighterShot()
         bullet.velocity = glm::vec2(-side * wingX * 1.6f, 640.0f);
         m_entities.push_back(bullet);
     }
+}
+
+void PlaneGameLayer::SpawnFighterMissiles()
+{
+    // 双发从左右机翼位置射出，初始朝向与玩家机头一致（之后由导弹自行追踪）
+    const float cosR = std::cos(m_playerRotation);
+    const float sinR = std::sin(m_playerRotation);
+    const float wingX = 0.30f * 70.0f;
+    const float muzzleY = 0.30f * 70.0f;
+
+    for (const float side : { -1.0f, 1.0f }) {
+        Entity missile;
+        missile.kind = EntityKind::PlayerMissile;
+        missile.mesh = &m_playerMissileMesh;
+        missile.radius = 12.0f;
+        missile.position = glm::vec2(
+            m_playerPosition.x + side * wingX * cosR - muzzleY * sinR,
+            m_playerPosition.y + side * wingX * sinR + muzzleY * cosR);
+        missile.rotation = m_playerRotation;
+        missile.velocity = HeadingVector(m_playerRotation) * MISSILE_SPEED;
+        missile.lifetime = MISSILE_LIFETIME;
+        m_entities.push_back(missile);
+    }
+}
+
+void PlaneGameLayer::SpawnPickup(const glm::vec2& position)
+{
+    // 导弹补给：在掉落点缓慢下落，未被拾取时自行消失
+    Entity pickup;
+    pickup.kind = EntityKind::Pickup;
+    pickup.mesh = &m_pickupMesh;
+    pickup.radius = 34.0f;
+    pickup.position = position;
+    pickup.wave = RandomFloat(0.0f, 2.0f * PI);
+    pickup.lifetime = PICKUP_LIFETIME;
+    m_entities.push_back(pickup);
+}
+
+void PlaneGameLayer::SpawnPickupFlash(const glm::vec2& position)
+{
+    Effect flash;
+    flash.kind = EffectKind::Flash;
+    flash.position = position;
+    flash.radius = 90.0f;
+    flash.lifetime = 0.25f;
+    flash.color = glm::vec4(0.55f, 0.90f, 1.0f, 0.9f);
+    m_effects.push_back(flash);
+
+    Effect ring;
+    ring.kind = EffectKind::Ring;
+    ring.position = position;
+    ring.radius = 140.0f;
+    ring.lifetime = 0.4f;
+    ring.color = glm::vec4(0.70f, 0.95f, 1.0f, 1.0f);
+    ring.thickness = 3.0f;
+    m_effects.push_back(ring);
 }
 
 void PlaneGameLayer::SpawnEnemyShot(const Entity& enemy)
@@ -712,6 +840,11 @@ void PlaneGameLayer::KillEnemy(uint32_t index)
     const bool large = enemy.kind == EntityKind::EnemyC;
     SpawnExplosion(enemy.position, color, enemy.radius, large);
 
+    // 大型敌机被击毁后掉落导弹补给
+    if (large) {
+        SpawnPickup(enemy.position);
+    }
+
     m_entities[index] = m_entities.back();
     m_entities.pop_back();
 }
@@ -722,6 +855,11 @@ void PlaneGameLayer::AddScore(int points)
     if (m_score > m_highScore) {
         m_highScore = m_score;
     }
+}
+
+bool PlaneGameLayer::IsEnemy(EntityKind kind)
+{
+    return kind == EntityKind::EnemyA || kind == EntityKind::EnemyB || kind == EntityKind::EnemyC;
 }
 
 void PlaneGameLayer::HitPlayer()
@@ -804,7 +942,11 @@ void PlaneGameLayer::UpdatePlayer(float deltaTime)
     m_fireCooldown -= deltaTime;
     const bool autoFire = Input::IsKeyPressed(Key::Space) && m_time > 0.15f;
     if (autoFire && m_fireCooldown <= 0.0f) {
-        SpawnFighterShot();
+        if (m_missileTime > 0.0f) {
+            SpawnFighterMissiles();
+        } else {
+            SpawnFighterShot();
+        }
         m_fireCooldown = 0.12f;
     }
 }
@@ -838,9 +980,86 @@ void PlaneGameLayer::UpdateEntities(float deltaTime)
                 ++i;
                 break;
             }
+            case EntityKind::PlayerMissile: {
+                // 索敌：锁定失效（目标被摧毁或超出脱锁距离）后重新选择目标
+                const Entity* target = nullptr;
+                if (entity.targetId != 0) {
+                    for (const Entity& candidate : m_entities) {
+                        if (candidate.id == entity.targetId) {
+                            target = &candidate;
+                            break;
+                        }
+                    }
+                    if (target != nullptr) {
+                        const glm::vec2 toTarget = target->position - entity.position;
+                        if (toTarget.x * toTarget.x + toTarget.y * toTarget.y >
+                            MISSILE_LOSE_RANGE * MISSILE_LOSE_RANGE) {
+                            target = nullptr;
+                        }
+                    }
+                }
+
+                const glm::vec2 heading = HeadingVector(entity.rotation);
+                if (target == nullptr) {
+                    // 取机头前方索敌锥角内最近的敌机
+                    float bestDistanceSq = MISSILE_LOCK_RANGE * MISSILE_LOCK_RANGE;
+                    for (const Entity& candidate : m_entities) {
+                        if (!IsEnemy(candidate.kind)) {
+                            continue;
+                        }
+                        const glm::vec2 toTarget = candidate.position - entity.position;
+                        const float distanceSq = toTarget.x * toTarget.x + toTarget.y * toTarget.y;
+                        if (distanceSq > bestDistanceSq || distanceSq < 0.0001f) {
+                            continue;
+                        }
+                        // 只接收机头前方的目标，避免导弹出膛后立即掉头
+                        const float cosAngle = (toTarget.x * heading.x + toTarget.y * heading.y) /
+                                               std::sqrt(distanceSq);
+                        if (cosAngle < MISSILE_LOCK_CONE) {
+                            continue;
+                        }
+                        bestDistanceSq = distanceSq;
+                        target = &candidate;
+                    }
+                    entity.targetId = target != nullptr ? target->id : 0;
+                }
+
+                // 以最大转向角速度朝目标偏转，再沿当前朝向推进（未锁定时保持直线飞行）
+                if (target != nullptr) {
+                    const glm::vec2 toTarget = target->position - entity.position;
+                    const float targetAngle = HeadingAngle(toTarget);
+                    const float delta = std::remainder(targetAngle - entity.rotation, 2.0f * PI);
+                    const float maxStep = MISSILE_TURN_RATE * deltaTime;
+                    entity.rotation += std::clamp(delta, -maxStep, maxStep);
+                }
+                entity.velocity = HeadingVector(entity.rotation) * MISSILE_SPEED;
+                entity.position += entity.velocity * deltaTime;
+
+                if (entity.age >= entity.lifetime ||
+                    std::abs(entity.position.x) > m_halfWidth + 90.0f ||
+                    std::abs(entity.position.y) > m_halfHeight + 90.0f) {
+                    m_entities[i] = m_entities.back();
+                    m_entities.pop_back();
+                    continue;
+                }
+                ++i;
+                break;
+            }
             case EntityKind::EnemyBullet: {
                 entity.position += entity.velocity * deltaTime;
                 if (entity.position.y < -m_halfHeight - 40.0f) {
+                    m_entities[i] = m_entities.back();
+                    m_entities.pop_back();
+                    continue;
+                }
+                ++i;
+                break;
+            }
+            case EntityKind::Pickup: {
+                // 缓慢下落并左右摆动，未被拾取时随时间消失
+                entity.position.y -= PICKUP_FALL_SPEED * deltaTime;
+                entity.position.x += std::sin(entity.age * 2.2f + entity.wave) * PICKUP_WOBBLE_SPEED * deltaTime;
+                if (entity.age >= entity.lifetime || entity.position.y < -m_halfHeight - 60.0f) {
                     m_entities[i] = m_entities.back();
                     m_entities.pop_back();
                     continue;
@@ -979,22 +1198,22 @@ void PlaneGameLayer::OnUpdate()
             }
         }
 
-        // 碰撞：玩家子弹 vs 敌机。命中后先移除子弹，避免 swap-and-pop 后索引失效
+        // 碰撞：玩家投射物（普通子弹/跟踪导弹）vs 敌机。命中后先移除投射物，避免 swap-and-pop 后索引失效
         for (uint32_t i = 0; i < m_entities.size();) {
-            if (m_entities[i].kind != EntityKind::PlayerBullet) {
+            const EntityKind shotKind = m_entities[i].kind;
+            if (shotKind != EntityKind::PlayerBullet && shotKind != EntityKind::PlayerMissile) {
                 ++i;
                 continue;
             }
 
-            const glm::vec2 bulletPosition = m_entities[i].position;
-            const float bulletRadius = m_entities[i].radius;
+            const glm::vec2 shotPosition = m_entities[i].position;
+            const float shotRadius = m_entities[i].radius;
 
             uint32_t hitIndex = 0;
             bool hit = false;
             for (uint32_t j = 0; j < m_entities.size() && !hit; ++j) {
                 const Entity& target = m_entities[j];
-                const bool enemy = target.kind == EntityKind::EnemyA || target.kind == EntityKind::EnemyB || target.kind == EntityKind::EnemyC;
-                if (enemy && CircleHit(bulletPosition, bulletRadius, target.position, target.radius)) {
+                if (IsEnemy(target.kind) && CircleHit(shotPosition, shotRadius, target.position, target.radius)) {
                     hitIndex = j;
                     hit = true;
                 }
@@ -1005,7 +1224,7 @@ void PlaneGameLayer::OnUpdate()
                 continue;
             }
 
-            // 先移除子弹（其索引先于敌机移除保持有效）
+            // 先移除投射物（其索引先于敌机移除保持有效）
             m_entities[i] = m_entities.back();
             m_entities.pop_back();
             if (hitIndex < m_entities.size()) {
@@ -1014,12 +1233,31 @@ void PlaneGameLayer::OnUpdate()
             // i 位置现在是换入的后备元素，下一轮循环继续处理
         }
 
+        // 拾取导弹补给（无敌期间同样可以拾取）
+        constexpr float PLAYER_RADIUS = 26.0f;
+        if (m_state == GameState::Playing) {
+            for (uint32_t i = 0; i < m_entities.size();) {
+                const Entity& pickup = m_entities[i];
+                if (pickup.kind != EntityKind::Pickup ||
+                    !CircleHit(pickup.position, pickup.radius, m_playerPosition, PLAYER_RADIUS)) {
+                    ++i;
+                    continue;
+                }
+
+                const glm::vec2 pickupPosition = pickup.position;
+                m_missileTime = MISSILE_DURATION;  // 重复拾取直接刷新时长
+                SpawnPickupFlash(pickupPosition);
+
+                m_entities[i] = m_entities.back();
+                m_entities.pop_back();
+            }
+        }
+
         // 碰撞：玩家 vs 敌机 / 敌方子弹
         if (m_state == GameState::Playing && m_invulnerable <= 0.0f) {
-            constexpr float PLAYER_RADIUS = 26.0f;
             for (uint32_t i = 0; i < m_entities.size();) {
                 const Entity& entity = m_entities[i];
-                const bool enemy = entity.kind == EntityKind::EnemyA || entity.kind == EntityKind::EnemyB || entity.kind == EntityKind::EnemyC;
+                const bool enemy = IsEnemy(entity.kind);
                 const bool isBullet = entity.kind == EntityKind::EnemyBullet;
                 const bool collides = (enemy || isBullet) &&
                     CircleHit(entity.position, entity.radius, m_playerPosition, PLAYER_RADIUS);
@@ -1043,6 +1281,7 @@ void PlaneGameLayer::OnUpdate()
         }
 
         m_invulnerable = std::max(0.0f, m_invulnerable - deltaTime);
+        m_missileTime = std::max(0.0f, m_missileTime - deltaTime);
         m_hitFlash = std::max(0.0f, m_hitFlash - deltaTime * 2.2f);
         m_shake = std::max(0.0f, m_shake - deltaTime * 90.0f);
     }
@@ -1111,9 +1350,9 @@ void PlaneGameLayer::RenderWorld(const glm::mat4& viewOffset)
     // ---- 敌方子弹：子弹网格为局部小数坐标，需要按 70 倍缩放（与机体一致）
     for (const auto& entity : m_entities) {
         if (entity.kind == EntityKind::EnemyBullet) {
-            const float angle = std::atan2(entity.velocity.x, entity.velocity.y);
             DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, 0.02f)) *
-                                   RotateZ(angle) * Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
+                                   RotateZ(HeadingAngle(entity.velocity)) *
+                                   Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
         }
     }
 
@@ -1146,6 +1385,25 @@ void PlaneGameLayer::RenderWorld(const glm::mat4& viewOffset)
                      glm::vec4(effect.color.x, effect.color.y, effect.color.z, alpha),
                      effect.thickness * (1.0f - t * 0.6f));
         }
+    }
+
+    // ---- 导弹补给道具 ----
+    for (const auto& entity : m_entities) {
+        if (entity.kind != EntityKind::Pickup) {
+            continue;
+        }
+        const float pulse = 0.5f + 0.5f * std::sin(entity.age * 5.0f);
+        const float size = 58.0f + 5.0f * pulse;
+        const float fade = std::min((entity.lifetime - entity.age) * 0.5f, 1.0f);  // 消失前 2 秒淡出
+        const glm::mat4 base = Translate(glm::vec3(entity.position.x, entity.position.y, 0.04f)) *
+                               Scale(glm::vec3(size, size, 1.0f));
+        // 光晕放在徽章后方（z 更小为更远），否则同深度会被深度测试剔除
+        m_shader->SetFloat("u_Falloff", 1.0f);
+        DrawMesh(m_glowMesh, base * Translate(glm::vec3(0.0f, 0.0f, -0.01f)) *
+                             Scale(glm::vec3(1.25f, 1.25f, 1.0f)),
+                 glm::vec4(0.40f, 0.85f, 1.0f, (0.18f + 0.16f * pulse) * fade));
+        m_shader->SetFloat("u_Falloff", 0.0f);
+        DrawMesh(*entity.mesh, base, glm::vec4(1.0f, 1.0f, 1.0f, fade));
     }
 
     // ---- 粒子 ----
@@ -1183,13 +1441,28 @@ void PlaneGameLayer::RenderWorld(const glm::mat4& viewOffset)
                                RotateZ(m_playerRotation) * Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
     }
 
-    // ---- 玩家子弹（最上层）----
+    // ---- 玩家投射物（最上层）----
     for (const auto& entity : m_entities) {
         if (entity.kind == EntityKind::PlayerBullet) {
             DrawMesh(*entity.mesh, Translate(glm::vec3(entity.position.x, entity.position.y, 0.08f)) *
-                                   RotateZ(std::atan2(entity.velocity.x, entity.velocity.y)) *
+                                   RotateZ(HeadingAngle(entity.velocity)) *
                                    Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
         }
+    }
+    for (const auto& entity : m_entities) {
+        if (entity.kind != EntityKind::PlayerMissile) {
+            continue;
+        }
+        const glm::mat4 base = Translate(glm::vec3(entity.position.x, entity.position.y, 0.08f)) *
+                               RotateZ(entity.rotation);
+        // 尾焰随飞行时间闪烁
+        const float flicker = 0.7f + 0.3f * std::sin(entity.age * 42.0f);
+        m_shader->SetFloat("u_Falloff", 1.0f);
+        DrawMesh(m_glowMesh, base * Translate(glm::vec3(0.0f, -35.0f, -0.01f)) *
+                             Scale(glm::vec3(7.0f, 17.0f * flicker, 1.0f)),
+                 glm::vec4(1.0f, 0.62f, 0.28f, 0.7f * flicker));
+        m_shader->SetFloat("u_Falloff", 0.0f);
+        DrawMesh(*entity.mesh, base * Scale(glm::vec3(70.0f, 70.0f, 1.0f)));
     }
 
     // ---- 受击红晕 / 暗角 ----
@@ -1240,6 +1513,11 @@ void PlaneGameLayer::RenderHud()
             ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "连击 x%d", m_combo);
         }
         ImGui::Text("生命 %d", m_lives);
+        if (m_missileTime > 0.0f) {
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 1.0f, 1.0f), "导弹 %.1f s", m_missileTime);
+        } else {
+            ImGui::Text("武器 普通子弹");
+        }
 
         if (m_state == GameState::Paused) {
             const ImVec2 center = ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
