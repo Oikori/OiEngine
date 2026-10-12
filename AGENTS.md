@@ -20,7 +20,7 @@
   - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
   - 两个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2 切换 `SetActive`
-- `vendor/` — glad、glfw、spdlog、stb_image、imgui（glfw/spdlog/imgui 登记为 git submodule）
+- `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm（glfw/spdlog/imgui/glm 登记为 git submodule）
 - `test/` — 数学库独立验证用例（不参与 CMake，被 .gitignore 忽略），用法见 `test/README.md`
 - `output/`、`build/` — 构建产物，不入库
 
@@ -94,7 +94,7 @@ c++ -std=c++23 -Wall -Wextra -I Engine -o "$env:TEMP\m.exe" test/matrix_verify.c
 ## Git / 其他
 
 - `.gitignore`：`.idea`、`output`、`test/*`；`build/` 由 CMake 生成的 .gitignore 覆盖
-- `vendor/glfw`、`vendor/spdlog`、`vendor/imgui` 是 submodule（glfw/spdlog 工作区可能显示为未跟踪，不要整体 `git add`）；`glad`、`stb_image` 直接入库
+- `vendor/glfw`、`vendor/spdlog`、`vendor/imgui`、`vendor/glm` 是 submodule（分支跟踪：glfw `master`、spdlog `v1.x`、imgui `docking`、glm `master`；更新用 `git submodule update --remote <path>`）；`glad`、`stb_image` 直接入库
 - 行尾为 LF，git 提示 "LF will be replaced by CRLF" 属正常
 
 ## 协作习惯
