@@ -3,7 +3,7 @@
 自研 C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（≥3.20）。
 
 - `Engine`：动态库（产物 `output/libEngine.dll`）
-- `SandBox`：演示程序（产物 `output/SandBox.exe`，`main.cpp` 当前是太阳系场景）
+- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战与太阳系两个场景，F1/F2 切换）
 - 渲染后端 OpenGL（glad + glfw），日志 spdlog，图像加载 stb_image
 
 ## 目录结构
@@ -16,6 +16,10 @@
   - `Engine/Engine/UI/` — `ImGuiLayer`（Dear ImGui 封装，作为 overlay 由 Application 内置）
   - `Engine/Platform/` — `OpenGL/`、`Windows/` 平台实现
 - `SandBox/` — demo 可执行程序
+  - `PlaneGame.h` / `PlaneGame.cpp` — 飞机大战（程序化几何 + 正交相机，全部顶点色，无图片资源）
+  - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
+  - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
+  - 两个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2 切换 `SetActive`
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui（glfw/spdlog/imgui 登记为 git submodule）
 - `test/` — 数学库独立验证用例（不参与 CMake，被 .gitignore 忽略），用法见 `test/README.md`
 - `output/`、`build/` — 构建产物，不入库
@@ -85,6 +89,7 @@ c++ -std=c++23 -Wall -Wextra -I Engine -o "$env:TEMP\m.exe" test/matrix_verify.c
 2. `zero` / `identity` 是 `static const`（不是 constexpr），**不能用于 static_assert**；常量场景用 `Matrix4(1.0f)` 构造
 3. 向量 `operator[]` 实现为 `(&x)[i]`（指针算术），矩阵×向量内部用到它 → `m * v` **不能用于常量表达式**（`v * m`、`m * m` 可以）；需要全 constexpr 矩阵运算时先改 `operator[]` 实现
 4. 模板类型不要加 `OI_API`（原因见「代码约定」）
+5. 向量构造函数只填前几个分量，其余为 0：`Vector4(1.0f)` 是 **(1, 0, 0, 0)**（只有 x），不是白色。渲染 tint / 颜色默认值必须写全分量 `Vector4(1.0f, 1.0f, 1.0f, 1.0f)`，否则 alpha 为 0 会被 `discard`。`Matrix4(1.0f)` 例外——填充对角线，是单位阵
 
 ## Git / 其他
 

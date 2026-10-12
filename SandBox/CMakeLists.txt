@@ -4,6 +4,7 @@ project(SandBox)
 
 add_executable(${PROJECT_NAME}
     main.cpp
+    PlaneGame.cpp
     SolarSystem.cpp
 )
 

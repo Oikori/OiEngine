@@ -23,6 +23,10 @@ public:
     void OnImGuiRender() override;
     void OnEvent(OiEngine::Event& event) override;
 
+    // 场景切换：未激活时跳过更新与渲染
+    void SetActive(bool active) { m_active = active; }
+    bool IsActive() const { return m_active; }
+
 private:
     struct CelestialBody {
         float orbitRadius = 0.0f;
@@ -48,6 +52,7 @@ private:
     SolarSystemCamera m_camera;
 
     // UI 调试状态
+    bool m_active = true;  // 场景是否激活（由 SceneSwitcher 控制）
     float m_timeScale = 1.0f;
     bool m_paused = false;
     float m_simulationTime = 0.0f;

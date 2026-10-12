@@ -374,6 +374,10 @@ void SolarSystemLayer::OnDetach() {}
 
 void SolarSystemLayer::OnUpdate()
 {
+    if (!m_active) {
+        return;
+    }
+
     RenderCommand::Clear();
 
     // 时间推进受 UI 控制（暂停 / 倍速），不直接依赖全局启动时间
@@ -422,6 +426,10 @@ void SolarSystemLayer::OnUpdate()
 
 void SolarSystemLayer::OnImGuiRender()
 {
+    if (!m_active) {
+        return;
+    }
+
     ImGui::Begin("Solar System");
 
     const ImGuiIO& io = ImGui::GetIO();
@@ -437,6 +445,7 @@ void SolarSystemLayer::OnImGuiRender()
 
     ImGui::Separator();
     ImGui::Checkbox("Show ImGui demo window", &m_showDemoWindow);
+    ImGui::TextDisabled("F1 飞机大战  F2 太阳系");
     ImGui::End();
 
     if (m_showDemoWindow) {
