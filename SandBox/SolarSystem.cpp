@@ -106,24 +106,32 @@ namespace {
         return vertexArray;
     }
 
-    // 带简单 Lambert 光照的着色器（用于行星，位置方向即球面法线）
+    // 走引擎光照系统的着色器（用于行星；球心位于局部原点，位置方向即球面法线）
+    // 相机 / 光照数据来自 Renderer 上传的 UBO（binding = 0/1），光照打包布局见 Renderer.cpp
     const char* LIT_VERTEX_SHADER = R"(
         #version 450 core
 
         layout(location = 0) in vec3 a_Position;
         layout(location = 1) in vec4 a_Color;
 
-        uniform mat4 u_Transform;
-        uniform mat4 u_view;
-        uniform mat4 u_projection;
+        layout(std140, binding = 0) uniform Camera {
+            mat4 u_Projection;
+            mat4 u_View;
+            vec4 u_CameraPosition;  // xyz: 世界空间位置（本着色器未用）
+        };
 
+        uniform mat4 u_Transform;
+
+        out vec3 v_WorldPosition;
         out vec3 v_Normal;
         out vec4 v_Color;
 
         void main()
         {
-            gl_Position = u_projection * u_view * u_Transform * vec4(a_Position, 1.0);
-            v_Normal = a_Position;
+            vec4 worldPosition = u_Transform * vec4(a_Position, 1.0);
+            gl_Position = u_Projection * u_View * worldPosition;
+            v_WorldPosition = worldPosition.xyz;
+            v_Normal = mat3(u_Transform) * a_Position;
             v_Color = a_Color;
         }
     )";
@@ -131,17 +139,68 @@ namespace {
     const char* LIT_FRAGMENT_SHADER = R"(
         #version 450 core
 
+        #define MAX_LIGHTS 32
+
+        // 与 C++ 侧 LightingData / LightData 的 std140 布局严格对应
+        struct Light {
+            vec4 positionType;   // xyz: 世界空间位置（Point/Spot）或传播方向（Directional）；w: 类型
+            vec4 directionRange; // xyz: 方向（Spot）；w: 影响范围（Point/Spot）
+            vec4 colorIntensity; // rgb: 颜色；w: 强度
+            vec4 params;         // x: 内锥角余弦；y: 外锥角余弦（Spot）
+        };
+
+        layout(std140, binding = 1) uniform Lighting {
+            vec4 u_Ambient;      // rgb: 颜色；a: 强度
+            int u_LightCount;
+            Light u_Lights[MAX_LIGHTS];
+        };
+
         layout(location = 0) out vec4 o_Color;
 
+        in vec3 v_WorldPosition;
         in vec3 v_Normal;
         in vec4 v_Color;
+
+        // 单个光源的漫反射贡献（Lambert）
+        vec3 ShadeLight(Light light, vec3 normal, vec3 worldPosition)
+        {
+            const int type = int(light.positionType.w + 0.5);
+
+            vec3 lightDirection;  // 从着色点指向光源
+            float attenuation = 1.0;
+
+            if (type == 0) {  // 方向光：positionType.xyz 为传播方向，取反得到指向光源的方向
+                lightDirection = -normalize(light.positionType.xyz);
+            } else {
+                vec3 toLight = light.positionType.xyz - worldPosition;
+                float distance = length(toLight);
+                lightDirection = toLight / max(distance, 0.0001);
+
+                // 点光源 / 聚光灯：影响范围内平滑衰减到 0
+                float falloff = clamp(1.0 - distance / max(light.directionRange.w, 0.0001), 0.0, 1.0);
+                attenuation = falloff * falloff;
+
+                if (type == 2) {  // 聚光灯：内锥全亮，内锥到外锥之间线性过渡
+                    float theta = dot(lightDirection, normalize(-light.directionRange.xyz));
+                    float epsilon = max(light.params.x - light.params.y, 0.0001);
+                    attenuation *= clamp((theta - light.params.y) / epsilon, 0.0, 1.0);
+                }
+            }
+
+            float diffuse = max(dot(normal, lightDirection), 0.0);
+            return light.colorIntensity.rgb * light.colorIntensity.w * diffuse * attenuation;
+        }
 
         void main()
         {
             vec3 normal = normalize(v_Normal);
-            vec3 lightDirection = normalize(vec3(0.5, 0.8, 0.6));
-            float diffuse = max(dot(normal, lightDirection), 0.0);
-            o_Color = vec4(v_Color.rgb * (0.35 + 0.65 * diffuse), v_Color.a);
+
+            vec3 color = u_Ambient.rgb * u_Ambient.a;
+            for (int i = 0; i < u_LightCount; ++i) {
+                color += ShadeLight(u_Lights[i], normal, v_WorldPosition);
+            }
+
+            o_Color = vec4(v_Color.rgb * color, v_Color.a);
         }
     )";
 
@@ -152,15 +211,19 @@ namespace {
         layout(location = 0) in vec3 a_Position;
         layout(location = 1) in vec4 a_Color;
 
+        layout(std140, binding = 0) uniform Camera {
+            mat4 u_Projection;
+            mat4 u_View;
+            vec4 u_CameraPosition;  // xyz: 世界空间位置（本着色器未用）
+        };
+
         uniform mat4 u_Transform;
-        uniform mat4 u_view;
-        uniform mat4 u_projection;
 
         out vec4 v_Color;
 
         void main()
         {
-            gl_Position = u_projection * u_view * u_Transform * vec4(a_Position, 1.0);
+            gl_Position = u_Projection * u_View * u_Transform * vec4(a_Position, 1.0);
             v_Color = a_Color;
         }
     )";
@@ -178,16 +241,20 @@ namespace {
         }
     )";
 
-    // 太阳光晕：正对相机的区域最亮，边缘渐隐（Renderer::Submit 会自动设置 u_cameraPosition）
+    // 太阳光晕：正对相机的区域最亮，边缘渐隐（相机位置来自 UBO，binding = 0）
     const char* GLOW_VERTEX_SHADER = R"(
         #version 450 core
 
         layout(location = 0) in vec3 a_Position;
         layout(location = 1) in vec4 a_Color;
 
+        layout(std140, binding = 0) uniform Camera {
+            mat4 u_Projection;
+            mat4 u_View;
+            vec4 u_CameraPosition;  // xyz: 世界空间位置（片元着色器使用）
+        };
+
         uniform mat4 u_Transform;
-        uniform mat4 u_view;
-        uniform mat4 u_projection;
 
         out vec3 v_WorldPosition;
         out vec3 v_Normal;
@@ -196,7 +263,7 @@ namespace {
         void main()
         {
             vec4 worldPosition = u_Transform * vec4(a_Position, 1.0);
-            gl_Position = u_projection * u_view * worldPosition;
+            gl_Position = u_Projection * u_View * worldPosition;
             v_WorldPosition = worldPosition.xyz;
             v_Normal = a_Position;  // 球心位于局部原点，位置方向即外法线方向
             v_Color = a_Color;
@@ -208,15 +275,20 @@ namespace {
 
         layout(location = 0) out vec4 o_Color;
 
+        // 同一 uniform 块在不同 stage 中必须定义一致
+        layout(std140, binding = 0) uniform Camera {
+            mat4 u_Projection;
+            mat4 u_View;
+            vec4 u_CameraPosition;  // xyz: 世界空间位置
+        };
+
         in vec3 v_WorldPosition;
         in vec3 v_Normal;
         in vec4 v_Color;
 
-        uniform vec3 u_cameraPosition;
-
         void main()
         {
-            vec3 viewDirection = normalize(u_cameraPosition - v_WorldPosition);
+            vec3 viewDirection = normalize(u_CameraPosition.xyz - v_WorldPosition);
             float facing = abs(dot(normalize(v_Normal), viewDirection));
             o_Color = vec4(v_Color.rgb, v_Color.a * pow(facing, 1.5));
         }
@@ -332,6 +404,16 @@ void SolarSystemLayer::OnAttach()
         m_orbitVertexCount = static_cast<uint32_t>(vertices.size() / 7);
     }
 
+    // 光照：微弱冷色环境光 + 位于太阳位置的点光源（行星面向太阳一侧被照亮）
+    m_lighting.ambientColor = glm::vec3(0.35f, 0.42f, 0.60f);
+    m_lighting.ambientIntensity = m_ambientIntensity;
+    m_lighting.pointLights.push_back({
+        .position = glm::vec3(0.0f, 0.0f, 0.0f),
+        .range = m_sunRange,
+        .color = glm::vec3(1.0f, 0.86f, 0.58f),
+        .intensity = m_sunIntensity,
+    });
+
     RenderCommand::SetClearColor(glm::vec4(0.02f, 0.02f, 0.05f, 1.0f));
 
     std::cout << "SolarSystem OnAttach" << std::endl;
@@ -362,6 +444,15 @@ void SolarSystemLayer::OnUpdate()
                                         std::sin(angle) * planet.orbitRadius);
     }
 
+    // 同步 UI 调整到光照参数
+    m_lighting.ambientIntensity = m_ambientIntensity;
+    PointLight& sunLight = m_lighting.pointLights.front();
+    sunLight.intensity = m_sunIntensity;
+    sunLight.range = m_sunRange;
+
+    // 开始场景：先上传相机 / 光照 UBO，此后所有绘制都能从 UBO 读取
+    Renderer::BeginScene(m_camera, m_lighting);
+
     // 1. 轨道线
     UseUnlitShader(glm::mat4(1.0f));
     RenderCommand::DrawLines(m_orbitMesh, m_orbitVertexCount);
@@ -370,12 +461,10 @@ void SolarSystemLayer::OnUpdate()
     UseUnlitShader(glm::mat4(1.0f));
     RenderCommand::DrawIndexed(m_sunMesh);
 
-    // 3. 行星（Lambert 光照体现球体体积感）
-    Renderer::BeginScene(m_camera);
+    // 3. 行星（引擎光照系统：环境光 + 太阳点光源，Lambert 漫反射）
     for (const auto& planet : m_planets) {
         Renderer::Submit(m_litShader, planet.mesh, glm::translate(glm::mat4(1.0f), planet.position));
     }
-    Renderer::EndScene();
 
     // 4. 土星环
     for (const auto& planet : m_planets) {
@@ -386,8 +475,8 @@ void SolarSystemLayer::OnUpdate()
     }
 
     // 5. 太阳光晕（半透明，最后绘制以保证混合正确）
-    Renderer::BeginScene(m_camera);
     Renderer::Submit(m_glowShader, m_glowMesh);
+
     Renderer::EndScene();
 }
 
@@ -397,7 +486,8 @@ void SolarSystemLayer::OnImGuiRender()
         return;
     }
 
-    ImGui::Begin("Solar System");
+    // AlwaysAutoResize：面板宽度随内容自适应，不受 imgui.ini 记录的旧尺寸影响
+    ImGui::Begin("Solar System", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
     const ImGuiIO& io = ImGui::GetIO();
     ImGui::Text("FPS: %.1f (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
@@ -411,6 +501,12 @@ void SolarSystemLayer::OnImGuiRender()
     }
 
     ImGui::Separator();
+    ImGui::Text("Lighting");
+    ImGui::SliderFloat("Ambient", &m_ambientIntensity, 0.0f, 0.5f, "%.3f");
+    ImGui::SliderFloat("Sun intensity", &m_sunIntensity, 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Sun range", &m_sunRange, 10.0f, 80.0f, "%.1f");
+
+    ImGui::Separator();
     ImGui::Checkbox("Show ImGui demo window", &m_showDemoWindow);
     ImGui::TextDisabled("F1 飞机大战  F2 太阳系");
     ImGui::End();
@@ -422,11 +518,9 @@ void SolarSystemLayer::OnImGuiRender()
 
 void SolarSystemLayer::OnEvent(Event& event) {}
 
-// 轨道线、环等几何不参与光照，需要手动设置相机的 uniform
+// 轨道线、环等几何不参与光照；相机 uniform 由 BeginScene 上传的 UBO 提供，这里只需模型变换
 void SolarSystemLayer::UseUnlitShader(const glm::mat4& transform)
 {
     m_unlitShader->Bind();
     m_unlitShader->SetMat4("u_Transform", transform);
-    m_unlitShader->SetMat4("u_view", m_camera.GetViewMatrix());
-    m_unlitShader->SetMat4("u_projection", m_camera.GetProjectionMatrix());
 }

@@ -12,9 +12,15 @@ namespace OiEngine::SandBox {
     // 正交相机：world 单位与屏幕像素 1:1 对应，1 世界单位 = 1 像素
     class PlaneGameCamera : public Camera {
     public:
+        // 受击震屏：以视图偏移叠加进 GetViewMatrix，随相机 UBO 一起上传
+        void SetShakeOffset(const glm::vec3& offset) { m_shakeOffset = offset; }
+
         glm::vec3 GetPosition() const override;
         glm::mat4 GetViewMatrix() const override;
         glm::mat4 GetProjectionMatrix() const override;
+
+    private:
+        glm::vec3 m_shakeOffset{0.0f, 0.0f, 0.0f};
     };
 
     class PlaneGameLayer : public Layer {
@@ -131,7 +137,7 @@ namespace OiEngine::SandBox {
         // 注意 tint 默认值必须写全分量：glm::vec4(1.0f) 是 (1,0,0,0)，alpha 为 0 会导致整批绘制被 discard
         void DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& transform,
                       const glm::vec4& tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), float lineWidth = 0.0f);
-        void RenderWorld(const glm::mat4& viewOffset);
+        void RenderWorld();
         void RenderHud();  // ImGui 界面（得分 / 生命 / 暂停 / 结束）
 
         // ---- 状态 ----

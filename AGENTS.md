@@ -70,6 +70,43 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 深度测试为 GL_LESS：**同 z 的重叠几何只保留先画的**。做「底盘 + 图标/亮芯」这类覆盖时必须显式错开 z，
   例如 `builder.AddPolygon(points, color, 0.02f)` 或"光晕的 z 比本体小一点"，否则上层部件会被剔除、只看到底盘
 
+## 相机 UBO（binding = 0）
+
+- `Renderer::BeginScene(camera)` 把相机数据（`CameraData`，见 `Camera.h`）打包上传到 `Camera::UBOBinding = 0` 的 UBO；`Renderer::Submit` 只再设置 `u_Transform`
+- shader 侧需声明同布局的 uniform 块（多个 stage 用到时，各 stage 中定义必须一致）：
+
+  ```glsl
+  layout(std140, binding = 0) uniform Camera {
+      mat4 u_Projection;
+      mat4 u_View;
+      vec4 u_CameraPosition;  // xyz: 世界空间位置；w: 对齐占位
+  };
+  ```
+
+- 相机视觉效果（如 PlaneGame 的受击震屏）应体现在 `Camera::GetViewMatrix()` 的返回值里，不要绕过 UBO 手动传 `u_view`
+- `BeginScene` 只上传 UBO、不改变 GL 状态，需要相机矩阵的绘制应全部放在它之后（SolarSystem 已改为单次 BeginScene/EndScene 包裹整帧绘制）
+
+## 光照（3D）
+
+- 光源定义在 `Engine/Engine/Renderer/Light.h`：`DirectionalLight`（direction 为传播方向）、`PointLight`、`SpotLight`（inner/outerAngle 为半角、弧度）
+- 场景用 `LightingEnvironment`（纯数据 struct，字段直用：`ambientColor`/`ambientIntensity`/`directionalLights`/`pointLights`/`spotLights`）；`Renderer::BeginScene(camera, lighting)` 时打包上传（binding = 1 与 std140 打包细节都在 `Renderer.cpp` 里）
+- shader 侧需自行声明同布局的 uniform 块（示例见 SandBox `SolarSystem.cpp` 的 `LIT_FRAGMENT_SHADER`）：
+
+  ```glsl
+  struct Light { vec4 positionType; vec4 directionRange; vec4 colorIntensity; vec4 params; };
+  layout(std140, binding = 1) uniform Lighting {
+      vec4 u_Ambient;      // rgb: 颜色；a: 强度
+      int  u_LightCount;
+      Light u_Lights[MAX_LIGHTS];
+  };
+  ```
+
+- 光源上限 32（`Renderer.cpp` 里的 `MaxLights`），shader 里 `MAX_LIGHTS` 必须一致（`Renderer.cpp` 内有 `static_assert` 校验 std140 布局与大小）
+- 打包顺序 Directional → Point → Spot；点光/聚光在 range 内平方衰减，聚光锥形因子用 `cos(innerAngle)/cos(outerAngle)` 插值
+- 未声明该 uniform 块的 shader（如 unlit 绘制）不受影响；`LightingEnvironment` 是场景自有的普通对象，多个场景各建各的
+- 光照按世界空间位置/法线计算；太阳系球体因球心在局部原点直接用位置方向当法线（变换后 `mat3(u_Transform) * a_Position`）
+- SandBox 太阳系演示：太阳位置放暖色点光源 + 冷色环境光，UI 可调 Ambient / Sun intensity / Sun range
+
 ## 数学库（glm）
 
 自建 Vector / Matrix / Quaternion 已删除，全面改用 `vendor/glm`（submodule；默认以

@@ -361,7 +361,8 @@ glm::vec3 PlaneGameCamera::GetPosition() const
 
 glm::mat4 PlaneGameCamera::GetViewMatrix() const
 {
-    return glm::mat4(1.0f);
+    // 震屏偏移叠加在视图矩阵上（默认单位阵）
+    return Translate(m_shakeOffset);
 }
 
 glm::mat4 PlaneGameCamera::GetProjectionMatrix() const
@@ -399,16 +400,20 @@ void PlaneGameLayer::CreateShaders()
         layout(location = 0) in vec3 a_Position;
         layout(location = 1) in vec4 a_Color;
 
+        layout(std140, binding = 0) uniform Camera {
+            mat4 u_Projection;
+            mat4 u_View;
+            vec4 u_CameraPosition;  // xyz: 世界空间位置（本着色器未用）
+        };
+
         uniform mat4 u_Transform;
-        uniform mat4 u_view;
-        uniform mat4 u_projection;
 
         out vec4 v_Color;
         out vec2 v_Local;
 
         void main()
         {
-            gl_Position = u_projection * u_view * u_Transform * vec4(a_Position, 1.0);
+            gl_Position = u_Projection * u_View * u_Transform * vec4(a_Position, 1.0);
             v_Color = a_Color;
             v_Local = a_Position.xy;  // 局部坐标，用于径向渐变
         }
@@ -1286,15 +1291,16 @@ void PlaneGameLayer::OnUpdate()
         m_shake = std::max(0.0f, m_shake - deltaTime * 90.0f);
     }
 
-    // 视图偏移（受击震屏）
-    glm::mat4 viewOffset(1.0f);
+    // 视图偏移（受击震屏）→ 交给相机，随相机 UBO 上传
+    glm::vec3 shakeOffset(0.0f, 0.0f, 0.0f);
     if (m_shake > 0.01f) {
-        viewOffset = Translate(glm::vec3(RandomFloat(-m_shake, m_shake) * 0.5f,
-                                             RandomFloat(-m_shake, m_shake) * 0.5f, 0.0f));
+        shakeOffset = glm::vec3(RandomFloat(-m_shake, m_shake) * 0.5f,
+                                RandomFloat(-m_shake, m_shake) * 0.5f, 0.0f);
     }
+    m_camera.SetShakeOffset(shakeOffset);
 
     Renderer::BeginScene(m_camera);
-    RenderWorld(viewOffset);
+    RenderWorld();
     Renderer::EndScene();
 }
 
@@ -1309,12 +1315,11 @@ void PlaneGameLayer::DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& tra
     RenderCommand::DrawIndexed(mesh);
 }
 
-void PlaneGameLayer::RenderWorld(const glm::mat4& viewOffset)
+void PlaneGameLayer::RenderWorld()
 {
-    // 手动渲染路径：先绑定着色器再设置 uniform（glUniform* 只作用于当前绑定的 program）
+    // 手动渲染路径：先绑定着色器再设置 uniform（glUniform* 只作用于当前绑定的 program）；
+    // 相机矩阵由 BeginScene 上传的 UBO 提供
     m_shader->Bind();
-    m_shader->SetMat4("u_view", viewOffset);
-    m_shader->SetMat4("u_projection", m_camera.GetProjectionMatrix());
 
     // ---- 背景：星云 + 星空 ----
     m_shader->SetFloat("u_Falloff", 1.0f);

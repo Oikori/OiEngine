@@ -3,6 +3,8 @@
 #include "RenderCommand.h"
 #include "Shader.h"
 #include "Camera.h"
+#include "LightingEnvironment.h"
+#include "UniformBuffer.h"
 
 namespace OiEngine {
 	class OI_API Renderer {
@@ -12,17 +14,14 @@ namespace OiEngine {
 		
 		static void OnWindowResize(uint32_t width, uint32_t height);
 
-		static void BeginScene(Camera& camera);
+		// 带光照的场景：额外把 LightingEnvironment 打包上传到光照 UBO（binding = 1）
+		static void BeginScene(const Camera& camera, const LightingEnvironment& lighting = {});
 		static void EndScene();
 
 		static void Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
 	private:
-	    struct SceneData {
-	        glm::vec3 cameraPosition;
-	        glm::mat4 viewMatrix;
-	        glm::mat4 projectionMatrix;
-		};
-
-		static Scope<SceneData> s_sceneData;
+		// 相机 UBO（binding = 0）与光照 UBO（binding = 1），BeginScene 时上传
+		static Ref<UniformBuffer> s_cameraBuffer;
+		static Ref<UniformBuffer> s_lightingBuffer;
 	};
 }
