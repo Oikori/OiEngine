@@ -1556,7 +1556,7 @@ void PlaneGameLayer::RenderHud()
         if (ImGui::Begin("Hint", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                                            ImGuiWindowFlags_NoInputs)) {
-            ImGui::Text("WASD / 方向键移动 · 按住空格自动开火 · P 暂停 · F1/F2 切换场景 · F3 调试");
+            ImGui::Text("WASD / 方向键移动 · 按住空格自动开火 · P 暂停 · F1/F2/F3 切换场景 · F4 调试");
         }
         ImGui::End();
         ImGui::PopStyleColor(2);
@@ -1612,7 +1612,7 @@ void PlaneGameLayer::OnEvent(Event& event)
         case Key::R:
             ResetGame();
             break;
-        case Key::F3:
+        case Key::F4:
             m_showDebug = !m_showDebug;
             break;
         case Key::Escape:

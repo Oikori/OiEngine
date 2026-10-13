@@ -3,7 +3,7 @@
 自研 C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（≥3.20）。
 
 - `Engine`：动态库（产物 `output/libEngine.dll`）
-- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战与太阳系两个场景，F1/F2 切换）
+- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、平台跳跃三个场景，F1/F2/F3 切换）
 - 渲染后端 OpenGL（glad + glfw），日志 spdlog，图像加载 stb_image，数学库 glm
 
 ## 目录结构
@@ -18,8 +18,10 @@
 - `SandBox/` — demo 可执行程序
   - `PlaneGame.h` / `PlaneGame.cpp` — 飞机大战（程序化几何 + 正交相机，全部顶点色，无图片资源）
   - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
+  - `Platformer/` — 平台跳跃小游戏（详见「平台跳跃手感」一节）
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
-  - 两个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2 切换 `SetActive`
+  - 三个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3 切换 `SetActive`；
+    场景内调试面板统一为 F4（原 PlaneGame 的 F3 调试键已迁移，避免与场景切换冲突）
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm（glfw/spdlog/imgui/glm 登记为 git submodule）
 - `test/` — 原数学库验证用例已删除（详见 `test/README.md`）；不参与 CMake，被 .gitignore 忽略
 - `output/`、`build/` — 构建产物，不入库
@@ -64,6 +66,20 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 注释：中文为主，glm 等来源的注释保留英文原文
 - `OI_API` 只用于**非模板类**（有 .cpp、需要跨 DLL 边界），如 `Random`、`UUID`；模板类型不要加（模板实例化的静态成员在 DLL 客户端无法链接）
 - 调试断言用 `OI_ASSERT(条件)`
+
+## 平台跳跃手感（SandBox/Platformer）
+
+`PlatformerLayer` 的手感三要素集中在 `Tuning` 结构，游戏内 F4 面板可实时调参并显示状态：
+
+1. **加速下落**：上升/下落两套重力（`riseGravity 2100` / `fallGravity 3900`），落地干脆；按住 ↓/S 再叠加 `fastFallExtra`
+2. **顶点滞空**：空中 `|vy| <= apexBand`（120）时进入低重力带（`apexGravityScale 0.45`），退出用 `apexExitScale`（1.7）迟滞；
+   资格条件是本次离地后 `vy` 曾超过 `apexBand`（`m_roseInAir`），从平台边缘自然跌落不触发
+3. **可变跳跃高度**：起跳初速度固定 `jumpVelocity`（830，对应最大高度）；上升途中松开跳跃键对 `vy` 乘 `jumpCutScale`（0.55，
+   低于 `jumpCutMinVelocity` 不再削减）——按住时长决定跳跃高度
+
+其他：Coyote 0.10s、跳跃输入缓冲 0.12s；碰撞为分轴 + 8px 子步进的 AABB（防高速穿隧）；
+游戏输入用 `Input::IsKeyPressed` 轮询，只被 `ImGui::GetIO().WantTextInput` 屏蔽
+（**不能**用 `WantCaptureKeyboard`：打开 F4 面板后它常为 true，会让角色不听使唤）
 
 ## 渲染：2D 场景的 z 约定
 
