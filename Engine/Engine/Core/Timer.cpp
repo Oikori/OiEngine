@@ -1,6 +1,7 @@
 #include "Timer.h"
 
 namespace OiEngine {
+    float Timer::s_fixedDeltaTime = 1.0f / 60.0f;
     std::chrono::time_point<std::chrono::high_resolution_clock> Timer::m_start;
     std::chrono::time_point<std::chrono::high_resolution_clock> Timer::m_preFrame;
     std::chrono::microseconds Timer::m_deltaTime;

@@ -9,10 +9,9 @@
 #include "LayerStack.h"
 #include "Engine/Events/Event.h"
 #include "Engine/Events/ApplicationEvent.h"
+#include "Engine/UI/ImGuiLayer.h"
 
 namespace OiEngine {
-    class ImGuiLayer;  // UI 调试层（引擎内置 overlay）
-
     struct ApplicationCommandLineArgs {
         int count = 0;
         char** args = nullptr;
@@ -29,6 +28,7 @@ namespace OiEngine {
         std::string name = "Application";
         std::string workingDirectory;
         ApplicationCommandLineArgs commandLineArgs;
+        int maxFixedUpdatePerFrame = 5;
     };
 
     class OI_API Application final {
@@ -66,6 +66,7 @@ namespace OiEngine {
         bool m_minimized = false;
         LayerStack m_layerStack;
         ImGuiLayer* m_imguiLayer = nullptr;  // 由 m_layerStack 持有，随 Application 析构统一释放
+        float m_fixedUpdateAccumulator = 0.0f;
 
         std::vector<std::function<void()>> m_MainThreadQueue;
         std::mutex m_MainThreadQueueMutex;

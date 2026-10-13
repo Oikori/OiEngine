@@ -12,6 +12,7 @@ namespace OiEngine {
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
 		virtual void OnUpdate() {}
+		virtual void OnFixedUpdate() {}
 		virtual void OnImGuiRender() {}
 		virtual void OnEvent(Event& event) {}
 

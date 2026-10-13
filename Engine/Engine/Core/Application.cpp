@@ -5,7 +5,6 @@
 
 #include "Timer.h"
 #include "Engine/Renderer/Renderer.h"
-#include "Engine/UI/ImGuiLayer.h"
 
 namespace OiEngine {
 	Application::~Application()
@@ -85,13 +84,29 @@ namespace OiEngine {
 			ExecuteMainThreadQueue();
 
 			if (!m_minimized) {
-				for (Layer* layer : m_layerStack)
-					layer->OnUpdate();
+			    // 固定时间步长更新：累积上一帧耗时，够一个 s_fixedDeltaTime 就补跑一次
+			    m_fixedUpdateAccumulator += Timer::GetDeltaTime();
+			    // 单帧累计上限：最多补跑 maxFixedUpdatePerFrame 个步长，超出部分（卡顿造成的积压）直接丢弃，避免“死亡螺旋”
+			    const float maxAccumulated = Timer::s_fixedDeltaTime * static_cast<float>(m_specification.maxFixedUpdatePerFrame);
+			    if (m_fixedUpdateAccumulator > maxAccumulated) {
+			        m_fixedUpdateAccumulator = maxAccumulated;
+			    }
+			    while (m_fixedUpdateAccumulator >= Timer::s_fixedDeltaTime) {
+			        for (Layer* layer : m_layerStack) {
+			            layer->OnFixedUpdate();
+			        }
+			        m_fixedUpdateAccumulator -= Timer::s_fixedDeltaTime;
+			    }
+
+				for (Layer* layer : m_layerStack) {
+				    layer->OnUpdate();
+				}
 
 				// UI 在所有场景之后、SwapBuffers 之前绘制
 				m_imguiLayer->Begin();
-				for (Layer* layer : m_layerStack)
-					layer->OnImGuiRender();
+				for (Layer* layer : m_layerStack) {
+				    layer->OnImGuiRender();
+				}
 				m_imguiLayer->End();
 			}
 
