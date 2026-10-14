@@ -1,6 +1,9 @@
 #pragma once
 
-// glm 的 lookAt / ortho 需要显式包含（不在 glm/glm.hpp 中）
+// glm 的 lookAt / ortho / perspective 需要显式包含（不在 glm/glm.hpp 中）
+#include <algorithm>
+#include <cmath>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "Engine/Core/Base.h"
@@ -58,6 +61,31 @@ namespace OiEngine {
 		// 光源沿传播方向的反方向退到包围球外 2 倍半径处，near/far 足以覆盖整个球体
 		shadow.view = glm::lookAt(center - direction * (radius * 2.0f), center, up);
 		shadow.projection = glm::ortho(-radius, radius, -radius, radius, 0.01f, radius * 4.0f);
+		shadow.lightSpaceMatrix = shadow.projection * shadow.view;
+		return shadow;
+	}
+
+	// 聚光灯的阴影相机（透视投影，视锥与光锥一致：fov = 2 * outerAngle，宽高比 1:1）
+	struct SpotLightShadow {
+		glm::mat4 view;
+		glm::mat4 projection;
+		glm::mat4 lightSpaceMatrix;  // projection * view
+	};
+
+	// 计算聚光灯的阴影相机：near/far 覆盖光源到 range 的距离。
+	// 采样时世界坐标乘 lightSpaceMatrix、除以 w 再做 * 0.5 + 0.5 即得 [0,1] 的贴图坐标，
+	// 投影已把整个光锥映射到 NDC 的 [-1,1]^2，不需要额外缩放。
+	inline SpotLightShadow ComputeSpotLightShadow(const SpotLight& light, float nearPlane = 0.15f)
+	{
+		OI_ASSERT(light.outerAngle > 0.0f, "Spot light outer angle must be positive!");
+
+		const glm::vec3 direction = glm::normalize(light.direction);
+		const glm::vec3 up = std::abs(direction.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+
+		SpotLightShadow shadow;
+		shadow.view = glm::lookAt(light.position, light.position + direction, up);
+		shadow.projection = glm::perspective(2.0f * light.outerAngle, 1.0f, nearPlane,
+			std::max(light.range, nearPlane * 2.0f));
 		shadow.lightSpaceMatrix = shadow.projection * shadow.view;
 		return shadow;
 	}

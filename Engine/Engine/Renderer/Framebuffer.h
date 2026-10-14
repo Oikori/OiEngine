@@ -10,6 +10,7 @@ namespace OiEngine {
 
 		// Color
 		RGBA8,
+		RGBA16F,  // 半浮点 HDR 颜色：光照结果超过 1 也不截断（后处理链的输入）
 		RED_INTEGER,
 
 		// Depth/stencil

@@ -3,26 +3,29 @@
 自研 C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（≥3.20）。
 
 - `Engine`：动态库（产物 `output/libEngine.dll`）
-- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、平台跳跃、阴影演示四个场景，F1/F2/F3/F5 切换）
+- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、平台跳跃、阴影演示、室内多光源五个场景，F1/F2/F3/F5/F6 切换）
 - 渲染后端 OpenGL（glad + glfw），日志 spdlog，图像加载 stb_image，数学库 glm
 
 ## 目录结构
 
 - `Engine/` — 库工程（include 根目录，见下）
-  - `Engine/Engine/Core/` — `Base.h`（OI_API / OI_ASSERT / Scope / Ref）、`Log.h`、Application、Layer、LayerStack、Window、Input、Timer
+  - `Engine/Engine/Core/` — `Base.h`（OI_API / OI_ASSERT / Scope / Ref）、`Log.h`（OI_TRACE/INFO/WARN/ERROR/CRITICAL，见「日志」一节）、Application、Layer、LayerStack、Window、Input、Timer
   - `Engine/Engine/Events/` — 事件系统（Event、ApplicationEvent、KeyEvent、MouseEvent）
   - `Engine/Engine/Math/` — `Random` / `UUID` 工具类；几何数学已迁移至 glm（见下文），总入口是 `Engine/Engine/Math.h`
-  - `Engine/Engine/Renderer/` — Renderer、Camera、Shader、Buffer、VertexArray、Framebuffer、ShadowMap 等抽象
+  - `Engine/Engine/Renderer/` — Renderer、Camera、Shader、Buffer、VertexArray、Framebuffer、UniformBuffer、**StorageBuffer（SSBO）**、ShadowMap / **ShadowMapArray**、**PostProcess**、**LightClustering**、**EnvironmentProbe** 等抽象
   - `Engine/Engine/UI/` — `ImGuiLayer`（Dear ImGui 封装，作为 overlay 由 Application 内置）
   - `Engine/Platform/` — `OpenGL/`、`Windows/` 平台实现
 - `SandBox/` — demo 可执行程序
   - `PlaneGame.h` / `PlaneGame.cpp` — 飞机大战（程序化几何 + 正交相机，全部顶点色，无图片资源）
   - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
   - `ShadowDemo.h` / `ShadowDemo.cpp` — 阴影演示（地面 + 几何体 + PBR 光照 + 可调方向光；详见「阴影」一节）
+  - `IndoorDemo.h` / `IndoorDemo.cpp` — 室内多光源演示（房间 + 吊灯/壁灯/台灯/射灯 + 阳光穿窗、Forward+ 剔除、聚光灯阴影、IBL 探针；详见「室内多光源」一节）
   - `Platformer/` — 平台跳跃小游戏（详见「平台跳跃手感」一节）
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
-  - 四个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3/F5 切换 `SetActive`；
+  - 五个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3/F5/F6 切换 `SetActive`；
     场景内调试面板统一为 F4（原 PlaneGame 的 F3 调试键已迁移，避免与场景切换冲突）
+  - 新增 `.cpp` 要同时加进 `SandBox/CMakeLists.txt`（SandBox 是显式源文件列表；`Engine/` 是 GLOB_RECURSE，
+    新增引擎源文件只需重跑 `cmake --preset mingw-debug`）
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm（glfw/spdlog/imgui/glm 登记为 git submodule）
 - `test/` — 原数学库验证用例已删除（详见 `test/README.md`）；不参与 CMake，被 .gitignore 忽略
 - `output/`、`build/` — 构建产物，不入库
@@ -43,6 +46,9 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 命令行直接运行 `output/SandBox.exe` 需要 MinGW 运行时 DLL 在 PATH 中（否则秒退无输出）：
   `$env:PATH = "D:\Program Files\JetBrains\CLion 2025.2.1\bin\mingw\bin;$env:PATH"`；CLion 运行配置会自动处理
 - 编译器路径记录在 `build/cmake-build-debug/CMakeCache.txt`（当前为 CLion 自带 MinGW GCC 15）
+- **注意 `cmake` 版本**：`CMakePresets.json` 用的 preset schema 版本 10 需要 CMake ≥ 3.31，而 PATH 里的
+  `D:\Program Files\CMake\bin\cmake.exe` 是 3.30（会报 `Unrecognized "version" field`）。重新配置/构建请用 CLion 自带的：
+  `$cmake = 'D:\Program Files\JetBrains\CLion 2025.2.1\bin\cmake\win\x64\bin\cmake.exe'; & $cmake --preset mingw-debug; & $cmake --build build/cmake-build-debug`
 - shell 是 Windows PowerShell 5.1：不支持 `&&` 和三元 `?:`；含逗号的链接参数（如 `-Wl,--out-implib,...`）需加引号
 
 ## 测试（数学）
@@ -106,28 +112,99 @@ cmake --preset mingw-debug      # 或 mingw-release
 
 ## 光照（3D）
 
-- 光源定义在 `Engine/Engine/Renderer/Light.h`：`DirectionalLight`（direction 为传播方向）、`PointLight`、`SpotLight`（inner/outerAngle 为半角、弧度）
-- 场景用 `SceneEnvironment`（纯数据 struct，字段直用：`ambientColor`/`ambientIntensity`/`directionalLights`/`pointLights`/`spotLights`）；`Renderer::BeginScene(camera, scene)` 时打包上传（binding = 1 与 std140 打包细节都在 `Renderer.cpp` 里）
-- shader 侧需自行声明同布局的 uniform 块（示例见 SandBox `SolarSystem.cpp` 的 `LIT_FRAGMENT_SHADER`）：
+- 光源定义在 `Engine/Engine/Renderer/Light.h`：`DirectionalLight`（direction 为传播方向）、`PointLight`、`SpotLight`
+  （inner/outerAngle 为半角、弧度；`shadowIndex`/`shadowBias` 见「阴影」一节）
+- **光源数据走 SSBO（binding = 3，std430）**，上限 `MaxLights = 256`（`Light.h` 常量，shader 侧 `MAX_LIGHTS` 必须一致；
+  `Renderer.cpp` 内有 `static_assert` 校验布局与大小）。场景仍用 `SceneEnvironment`（纯数据 struct：
+  `ambientColor`/`ambientIntensity`/`directionalLights`/`pointLights`/`spotLights`），`Renderer::BeginScene(camera, scene)` 时打包上传
+- shader 侧声明（示例见 `IndoorDemo.cpp` 的 `LIT_FRAGMENT_SHADER`）：
 
   ```glsl
-  struct Light { vec4 positionType; vec4 directionRange; vec4 colorIntensity; vec4 params; };
-  layout(std140, binding = 1) uniform Lighting {
-      vec4 u_Ambient;      // rgb: 颜色；a: 强度
-      int  u_LightCount;
+  #define MAX_LIGHTS 256
+  #define MAX_SHADOW_CASTERS 8
+
+  struct Light {
+      vec4 positionType;   // xyz: 世界空间位置（Point/Spot）或传播方向（Directional）；w: 类型
+      vec4 directionRange; // xyz: 方向（Spot）；w: 影响半径（Point/Spot）
+      vec4 colorIntensity; // rgb: 颜色；w: 强度
+      vec4 params;         // x: 内锥角余弦；y: 外锥角余弦（Spot）
+      vec4 flags;          // x: 阴影矩阵槽位（-1 不投影）；y: 阴影深度偏移基数
+  };
+  layout(std430, binding = 3) readonly buffer Lighting {
+      vec4  u_Ambient;      // rgb: 颜色；a: 强度
+      ivec4 u_Counts;       // x: 光源数；y: 阴影矩阵数；z: 每 cluster 光源上限；w: 备用
+      vec4  u_ClipPlanes;   // x: near；y: far；z: 1/log(far/near)；w: 备用（cluster 深度切片用）
+      ivec4 u_Grid;         // x/y: tilesX / tilesY；z: 深度切片数；w: 是否启用 cluster 剔除
       Light u_Lights[MAX_LIGHTS];
+      mat4  u_ShadowMatrices[MAX_SHADOW_CASTERS];
   };
   ```
 
-- 光源上限 32（`Renderer.cpp` 里的 `MaxLights`），shader 里 `MAX_LIGHTS` 必须一致（`Renderer.cpp` 内有 `static_assert` 校验 std140 布局与大小）
-- 打包顺序 Directional → Point → Spot；点光/聚光在 range 内平方衰减，聚光锥形因子用 `cos(innerAngle)/cos(outerAngle)` 插值
-- 未声明该 uniform 块的 shader（如 unlit 绘制）不受影响；`SceneEnvironment` 是场景自有的普通对象，多个场景各建各的
+- 打包顺序 Directional → Point → Spot；**衰减统一为窗函数截断的平方反比**
+  （`w = saturate(1 - (d/range)^4)`，`attenuation = w² / max(d², 0.01)`），即 `intensity` = 距离 1 个单位处的照度，
+  室内点光源典型取值 20 ~ 200（旧场景的 intensity 需要按此重新调参：太阳系的太阳点光源用了 320）
+- 聚光锥形因子 `cos(innerAngle)/cos(outerAngle)` 乘在衰减之上
+- 未声明该 buffer 的 shader（如 unlit 绘制）不受影响；`SceneEnvironment` 是场景自有的普通对象，多个场景各建各的
 - 光照按世界空间位置/法线计算；太阳系球体因球心在局部原点直接用位置方向当法线（变换后 `mat3(u_Transform) * a_Position`）
-- SandBox 太阳系演示：太阳位置放暖色点光源 + 冷色环境光，UI 可调 Ambient / Sun intensity / Sun range
+- `Camera` 增加了 `GetNearClip()/GetFarClip()`（默认 0.1 / 1000），透视场景**务必重写为与投影矩阵一致的值**（cluster 深度切片依赖它）
 
-## 阴影（方向光 shadow map）
+## Forward+ 光源剔除（cluster）
 
-- `ShadowMap`（`Engine/Engine/Renderer/ShadowMap.h`）：只含一个深度附件（`FramebufferTextureFormat::DEPTH24`）的离屏帧缓冲；
+- `LightClustering`（`Engine/Engine/Renderer/LightClustering.h`）：按 屏幕 16×16 px tile × 24 层视空间深度切片划分 cluster，
+  compute shader 逐 cluster 与光源包围球求交，结果写进两个 SSBO：
+  - binding 4：`uint u_ClusterLightCounts[clusterCount]`（每 cluster 光源数）
+  - binding 5：`uint u_ClusterLightIndices[clusterCount * 48]`（光源索引列表，`MaxLightsPerCluster = 48`）
+- 开关与派发：`Renderer::SetLightCullingEnabled(true)`；`Renderer::BeginScene` 在上传光照 SSBO 后自动
+  `LightClustering::Dispatch()`（清计数 + compute + `MemoryBarrierShaderStorage()`）。窗口 resize 时网格随 `Renderer::OnWindowResize` 重建
+- shader 侧按同一套索引规则定位 cluster（布局：slice 优先，其次 tile 行，最后 tile 列）：
+
+  ```glsl
+  layout(std430, binding = 4) readonly buffer ClusterLightCounts { uint u_ClusterLightCounts[]; };
+  layout(std430, binding = 5) readonly buffer ClusterLightIndices { uint u_ClusterLightIndices[]; };
+  // 片元：viewDepth -> slice = floor(log(d/near) * u_ClipPlanes.z * u_Grid.z)
+  //       tile = gl_FragCoord.xy / 16；index = (slice * tilesY + tileY) * tilesX + tileX
+  ```
+
+- `u_Grid.w == 0`（未启用）时着色器应退回遍历全部光源（`IndoorDemo` 里两条路径并存，可对照排查）
+- 实测（1600×900，211 个光源，RTX 5060 Ti）：剔除关 4.67 ms → 剔除开 1.19 ms（约 3.9×），画面一致
+- 调试统计 `LightClustering::ReadStats()` 会读回 GPU（同步等待），UI 里应低频调用（IndoorDemo 每 30 帧一次）；
+  统计里的 `overflowClusters` 表示光源列表被撑爆的 cluster 数——真出现时优先缩小光源 range，而不是盲目加大上限
+- compute 着色器：`Shader::CreateCompute(name, src)` + `shader->Dispatch(groupsX, groupsY, groupsZ)`
+
+## HDR 后处理
+
+- `PostProcess`（`Engine/Engine/Renderer/PostProcess.h`）：`Renderer::SetHDREnabled(true)` 后场景渲染到
+  RGBA16F 离屏目标（`FramebufferTextureFormat::RGBA16F`），`EndScene` 时全屏 tonemap（ACES + gamma + 曝光）输出到默认帧缓冲
+- **开启 HDR 的场景着色器只输出线性 HDR 颜色**（不要再自己 ACES / gamma），曝光统一用 `Renderer::SetExposure()`
+- 默认关闭时行为与旧路径完全一致（场景着色器各自 tonemap）；开关放在场景 `OnUpdate` 开头即可（只有激活的场景会执行），例如
+  `Renderer::SetHDREnabled(true); Renderer::SetExposure(m_exposure);`
+- `PostProcess::GetColorTextureRendererID()` 可拿到 HDR 颜色纹理做 ImGui 预览
+- 后续接入 bloom 等 pass 时，扩展 `PostProcess::EndScene` 里的 pass 链即可（现只有 tonemap 一个 pass）
+
+## 环境探针（IBL）
+
+- `EnvironmentProbe`（`Engine/Engine/Renderer/EnvironmentProbe.h`）：`Capture(position, callback)` 把场景画进 RGBA16F cubemap
+  （调用方回调里用探针给的 `faceView/faceProjection` 绘制，**不要用依赖探针自身的着色器**，否则递归），
+  然后引擎自动做 irradiance 余弦卷积（32²）与 GGX prefilter（128²，8 级 mip）
+- 光照着色器侧：漫反射用 `texture(u_IrradianceMap, N)`，镜面用
+  `textureLod(u_PrefilteredMap, reflect(-V, N), roughness * u_ProbeMaxLod)` × Karis `EnvBRDFApprox`
+  （本引擎未预计算 BRDF LUT，镜面项沿用解析近似）
+- 纹理单元约定：2 = irradiance、3 = prefilter（`BindIrradiance(slot)` / `BindPrefiltered(slot)`）
+- 捕获里的直射太阳通常要按比例缩小（`IndoorDemo` 的 "Probe sun scale"，默认 0.45），否则间接光会把阳光重复算一遍
+- 光路改动（灯具 / 阳光）后需要重新 `Capture` —— `IndoorDemo` 面板有 "Recompute probe" 按钮（约百毫秒级）
+
+## 日志
+
+- `OI_TRACE/OI_INFO/OI_WARN/OI_ERROR/OI_CRITICAL` 已实装（`Engine/Engine/Core/Log.{h,cpp}`，不依赖 spdlog）：
+  宏用 `std::format` 格式化（支持 `{0}` 位置参数与普通 `{}`），Info 及以下写 stdout、Error 及以上写 stderr，
+  Trace 默认被级别过滤（`Log::SetLevel` 可调）
+- 格式串必须是编译期字面量（`std::format` 的 consteval 检查）；`glGetString()` 之类的 `const GLubyte*` 要先
+  `reinterpret_cast<const char*>`
+- OpenGL 调试输出（`OI_DEBUG` 构建）会经 `glDebugMessageCallback` 送到日志——MEDIUM/HIGH 级别的 GL 错误会直接打在控制台
+
+## 阴影（方向光 + 聚光灯）
+
+- 方向光：`ShadowMap`（`Engine/Engine/Renderer/ShadowMap.h`）：只含一个深度附件（`FramebufferTextureFormat::DEPTH24`）的离屏帧缓冲；
   深度纹理为 NEAREST + CLAMP_TO_BORDER（边界外返回 1.0）；`BindDepthTexture(slot)` 绑定到指定纹理单元供着色器采样
 - 每帧流程（在主场景 `BeginScene` 之前）：
 
@@ -154,10 +231,36 @@ cmake --preset mingw-debug      # 或 mingw-release
   得到 [0,1] 光空间坐标，与深度纹理 `.r` 比较；bias 用斜率缩放（`max(bias * (1 - NdotL), bias * 0.2)`）防自阴影条纹；
   只对方向光乘可见度（点光 / 聚光分支不采样）
 - 深度纹理通过 `ShadowMap::BindDepthTexture(slot)` 绑定（内部 `RenderCommand::BindTexture2D`），再用 `shader->SetInt("u_ShadowMap", slot)` 指定采样单元
-- 底层接口：`Framebuffer` 增加 `GetDepthAttachmentRendererID()` 与 `DEPTH24` 格式；`RenderCommand::ClearDepth()`、`RenderCommand::BindTexture2D(slot, textureID)`
+- **聚光灯阴影**（`ShadowMapArray`，深度纹理数组，每盏一层，默认 1024² × 8 层）：
+
+  ```cpp
+  const SpotLightShadow shadow = ComputeSpotLightShadow(spot);           // 透视投影，fov = 2 * outerAngle
+  Renderer::SetLightShadowMatrix(spot.shadowIndex, shadow.lightSpaceMatrix);  // 槽位 = SpotLight::shadowIndex
+  Renderer::BeginShadowPass(m_spotShadowMaps, spot.shadowIndex, shadow.view, shadow.projection);
+  for (const auto& caster : casters) { Renderer::Submit(depthShader, caster.mesh, caster.transform); }
+  Renderer::EndShadowPass(m_spotShadowMaps);
+  ```
+
+  光空间矩阵随光照 SSBO 的 `u_ShadowMatrices[MAX_SHADOW_CASTERS]` 一起上传，着色器按 `u_Lights[i].flags.x` 取槽位并采样
+  `sampler2DArray`（纹理单元 0，`u_SpotShadowMaps`），bias 取 `flags.y`（逐光源）。点光源阴影（cube/双抛物面）暂未实现
+- 底层接口：`Framebuffer` 的 `GetDepthAttachmentRendererID()` 与 `DEPTH24`/`RGBA16F` 格式；`RenderCommand::ClearDepth()`、
+  `BindTexture2D/BindTexture2DArray/BindTextureCube`、`SetDepthTest`、`MemoryBarrierShaderStorage`
 - SandBox F5「阴影演示」：地面 + 立方体 / 球体 + 可调太阳方向与 bias 的环绕相机；光照着色器为 Cook-Torrance PBR
-  （GGX 分布 + Smith 几何项 + Schlick 菲涅尔；环境光用 Karis 解析 env BRDF 近似，输出前做 ACES tonemap 与 gamma 校正，曝光可调），
+  （GGX 分布 + Smith 几何项 + Schlick 菲涅尔；环境光用 Karis 解析 env BRDF 近似，输出线性 HDR 交给后处理链），
   材质（albedo / metallic / roughness / AO）逐实例通过 uniform 传入；UI 勾选可预览 shadow map（`ImGui::Image` 绑定深度纹理）
+
+## 室内多光源（SandBox/IndoorDemo，F6）
+
+把上面几块拼起来的完整示例，也是新光照路径的参考实现：
+
+- 房间（16 × 4 × 12，-z 墙上有窗洞 + 自发光窗玻璃）+ 家具 + 灯具，全部程序化生成（`AppendBox/AppendSphere/AppendQuad`）
+- 光源：1 束穿窗阳光（方向光 + 4096² 阴影）+ 4 盏向下吊灯（聚光灯，各占一层阴影贴图数组）+ 4 壁灯 / 2 台灯（点光源）
+  + 可加到 240 盏的额外点光源（压力测试，`range` 1.2 ~ 2.5 的室内尺度小光源）
+- 走 HDR 路径 + `Renderer::SetLightCullingEnabled(true)`；面板可实时对比剔除开 / 关、聚光灯阴影开关、曝光、探针开关与"Recompute probe"
+- 相机是轨道相机但**把机位夹在房间内**（`IndoorCamera::GetPosition` 里 `glm::clamp`）——室内观察用轨道相机必须限制，
+  否则很容易转到墙外 / 天花板外
+- 性能参考（1600×900）：11 个光源约 5 ms 上限（vsync 200Hz）；211 个光源、剔除开启 1.19 ms
+
 
 ## 数学库（glm）
 

@@ -22,10 +22,15 @@ namespace OiEngine {
 		virtual void SetMat3(const std::string& name, const glm::mat3& value) = 0;
 		virtual void SetMat4(const std::string& name, const glm::mat4& value) = 0;
 
+		// 只对计算着色器有效：派发 compute 工作组（调用后需要内存屏障才能被后续绘制读到结果）
+		virtual void Dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) const = 0;
+
 		virtual const std::string& GetName() const = 0;
 
 		static Ref<Shader> Create(const std::string& filepath);
 		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+		// 计算着色器（GLSL compute，local_size_* 在工作组布局限定符里声明）
+		static Ref<Shader> CreateCompute(const std::string& name, const std::string& computeSrc);
 	};
 
 	class OI_API ShaderLibrary {

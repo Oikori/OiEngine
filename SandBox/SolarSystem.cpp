@@ -139,20 +139,25 @@ namespace {
     const char* LIT_FRAGMENT_SHADER = R"(
         #version 450 core
 
-        #define MAX_LIGHTS 32
+        #define MAX_LIGHTS 256
+        #define MAX_SHADOW_CASTERS 8
 
-        // 与 C++ 侧 LightingData / LightData 的 std140 布局严格对应
+        // 与 C++ 侧 LightingData / LightData 的 std430 布局严格对应
         struct Light {
             vec4 positionType;   // xyz: 世界空间位置（Point/Spot）或传播方向（Directional）；w: 类型
             vec4 directionRange; // xyz: 方向（Spot）；w: 影响范围（Point/Spot）
             vec4 colorIntensity; // rgb: 颜色；w: 强度
             vec4 params;         // x: 内锥角余弦；y: 外锥角余弦（Spot）
+            vec4 flags;          // x: 阴影矩阵槽位（-1 不投影）；y: 阴影深度偏移基数
         };
 
-        layout(std140, binding = 1) uniform Lighting {
-            vec4 u_Ambient;      // rgb: 颜色；a: 强度
-            int u_LightCount;
+        layout(std430, binding = 3) buffer Lighting {
+            vec4  u_Ambient;      // rgb: 颜色；a: 强度
+            ivec4 u_Counts;       // x: 光源数；y: 阴影矩阵数；z: 每 cluster 光源上限；w: 备用
+            vec4  u_ClipPlanes;   // x: near；y: far；z: 1/log(far/near)；w: 备用（cluster 深度切片用）
+            ivec4 u_Grid;         // x/y: tilesX / tilesY；z: 深度切片数；w: 是否启用 cluster 剔除
             Light u_Lights[MAX_LIGHTS];
+            mat4  u_ShadowMatrices[MAX_SHADOW_CASTERS];
         };
 
         layout(location = 0) out vec4 o_Color;
@@ -176,9 +181,9 @@ namespace {
                 float distance = length(toLight);
                 lightDirection = toLight / max(distance, 0.0001);
 
-                // 点光源 / 聚光灯：影响范围内平滑衰减到 0
-                float falloff = clamp(1.0 - distance / max(light.directionRange.w, 0.0001), 0.0, 1.0);
-                attenuation = falloff * falloff;
+                // 点光源 / 聚光灯：窗函数截断的平方反比衰减，intensity 为 1 单位距离处的照度
+                float w = clamp(1.0 - pow(distance / max(light.directionRange.w, 0.0001), 4.0), 0.0, 1.0);
+                attenuation = (w * w) / max(distance * distance, 0.01);
 
                 if (type == 2) {  // 聚光灯：内锥全亮，内锥到外锥之间线性过渡
                     float theta = dot(lightDirection, normalize(-light.directionRange.xyz));
@@ -196,7 +201,7 @@ namespace {
             vec3 normal = normalize(v_Normal);
 
             vec3 color = u_Ambient.rgb * u_Ambient.a;
-            for (int i = 0; i < u_LightCount; ++i) {
+            for (int i = 0; i < u_Counts.x; ++i) {
                 color += ShadeLight(u_Lights[i], normal, v_WorldPosition);
             }
 
@@ -415,8 +420,6 @@ void SolarSystemLayer::OnAttach()
     });
 
     RenderCommand::SetClearColor(glm::vec4(0.02f, 0.02f, 0.05f, 1.0f));
-
-    std::cout << "SolarSystem OnAttach" << std::endl;
 }
 
 void SolarSystemLayer::OnDetach() {}
@@ -503,7 +506,7 @@ void SolarSystemLayer::OnImGuiRender()
     ImGui::Separator();
     ImGui::Text("Lighting");
     ImGui::SliderFloat("Ambient", &m_ambientIntensity, 0.0f, 0.5f, "%.3f");
-    ImGui::SliderFloat("Sun intensity", &m_sunIntensity, 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Sun intensity", &m_sunIntensity, 0.0f, 800.0f, "%.0f");
     ImGui::SliderFloat("Sun range", &m_sunRange, 10.0f, 80.0f, "%.1f");
 
     ImGui::Separator();

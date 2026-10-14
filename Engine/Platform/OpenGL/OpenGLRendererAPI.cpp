@@ -12,12 +12,11 @@ namespace OiEngine {
 		const char* message,
 		const void* userParam)
 	{
-		switch (severity)
-		{
-			case GL_DEBUG_SEVERITY_HIGH:         OI_CRITICAL(message); return;
-			case GL_DEBUG_SEVERITY_MEDIUM:       OI_ERROR(message); return;
-			case GL_DEBUG_SEVERITY_LOW:          OI_WARN(message); return;
-			case GL_DEBUG_SEVERITY_NOTIFICATION: OI_TRACE(message); return;
+		switch (severity) {
+			case GL_DEBUG_SEVERITY_HIGH:         OI_CRITICAL("{0}", message); return;
+			case GL_DEBUG_SEVERITY_MEDIUM:       OI_ERROR("{0}", message); return;
+			case GL_DEBUG_SEVERITY_LOW:          OI_WARN("{0}", message); return;
+			case GL_DEBUG_SEVERITY_NOTIFICATION: OI_TRACE("{0}", message); return;
 		}
 		
 		OI_ASSERT(false, "Unknown severity level!");
@@ -25,7 +24,7 @@ namespace OiEngine {
 
 	void OpenGLRendererAPI::Init()
 	{
-	#ifdef HZ_DEBUG
+	#ifdef OI_DEBUG
 		glEnable(GL_DEBUG_OUTPUT);
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 		glDebugMessageCallback(OpenGLMessageCallback, nullptr);
@@ -62,6 +61,20 @@ namespace OiEngine {
 		glClear(GL_DEPTH_BUFFER_BIT);
 	}
 
+	void OpenGLRendererAPI::SetDepthTest(bool enabled)
+	{
+		if (enabled) {
+			glEnable(GL_DEPTH_TEST);
+		} else {
+			glDisable(GL_DEPTH_TEST);
+		}
+	}
+
+	void OpenGLRendererAPI::MemoryBarrierShaderStorage()
+	{
+		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+	}
+
 	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount)
 	{
 		vertexArray->Bind();
@@ -79,6 +92,18 @@ namespace OiEngine {
 	{
 		glActiveTexture(GL_TEXTURE0 + slot);
 		glBindTexture(GL_TEXTURE_2D, textureRendererID);
+	}
+
+	void OpenGLRendererAPI::BindTexture2DArray(uint32_t slot, uint32_t textureRendererID)
+	{
+		glActiveTexture(GL_TEXTURE0 + slot);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, textureRendererID);
+	}
+
+	void OpenGLRendererAPI::BindTextureCube(uint32_t slot, uint32_t textureRendererID)
+	{
+		glActiveTexture(GL_TEXTURE0 + slot);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, textureRendererID);
 	}
 
 	void OpenGLRendererAPI::SetLineWidth(float width)

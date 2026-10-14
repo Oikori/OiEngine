@@ -12,9 +12,9 @@ namespace OiEngine {
 	    OI_ASSERT(status, "Failed to initialize Glad!");
 
 	    OI_INFO("OpenGL Info:");
-	    OI_INFO("  Vendor: {0}", glGetString(GL_VENDOR));
-	    OI_INFO("  Renderer: {0}", glGetString(GL_RENDERER));
-	    OI_INFO("  Version: {0}", glGetString(GL_VERSION));
+	    OI_INFO("  Vendor: {0}", reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
+	    OI_INFO("  Renderer: {0}", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
+	    OI_INFO("  Version: {0}", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
 
 	    OI_ASSERT(GLVersion.major > 4 || (GLVersion.major == 4 && GLVersion.minor >= 5), "Hazel requires at least OpenGL version 4.5!");
 	}

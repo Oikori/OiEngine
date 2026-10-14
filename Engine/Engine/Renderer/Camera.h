@@ -24,5 +24,9 @@ namespace OiEngine {
 	    virtual glm::vec3 GetPosition() const = 0;
 	    virtual glm::mat4 GetViewMatrix() const = 0;
 		virtual glm::mat4 GetProjectionMatrix() const = 0;
+
+		// 近 / 远裁剪面：cluster 光源剔除的深度切片需要（透视相机务必重写为投影矩阵的实际取值）
+		virtual float GetNearClip() const { return 0.1f; }
+		virtual float GetFarClip() const { return 1000.0f; }
 	};
 }

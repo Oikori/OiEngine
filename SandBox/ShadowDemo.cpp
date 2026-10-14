@@ -171,21 +171,26 @@ namespace {
     const char* LIT_FRAGMENT_SHADER = R"(
         #version 450 core
 
-        #define MAX_LIGHTS 32
+        #define MAX_LIGHTS 256
+        #define MAX_SHADOW_CASTERS 8
         #define PI 3.141592653589793
 
-        // 与 C++ 侧 LightingData / LightData 的 std140 布局严格对应
+        // 与 C++ 侧 LightingData / LightData 的 std430 布局严格对应
         struct Light {
             vec4 positionType;   // xyz: 世界空间位置（Point/Spot）或传播方向（Directional）；w: 类型
             vec4 directionRange; // xyz: 方向（Spot）；w: 影响范围（Point/Spot）
             vec4 colorIntensity; // rgb: 颜色；w: 强度
             vec4 params;         // x: 内锥角余弦；y: 外锥角余弦（Spot）
+            vec4 flags;          // x: 阴影矩阵槽位（-1 不投影）；y: 阴影深度偏移基数
         };
 
-        layout(std140, binding = 1) uniform Lighting {
-            vec4 u_Ambient;      // rgb: 颜色；a: 强度
-            int u_LightCount;
+        layout(std430, binding = 3) buffer Lighting {
+            vec4  u_Ambient;      // rgb: 颜色；a: 强度
+            ivec4 u_Counts;       // x: 光源数；y: 阴影矩阵数；z: 每 cluster 光源上限；w: 备用
+            vec4  u_ClipPlanes;   // x: near；y: far；z: 1/log(far/near)；w: 备用（cluster 深度切片用）
+            ivec4 u_Grid;         // x/y: tilesX / tilesY；z: 深度切片数；w: 是否启用 cluster 剔除
             Light u_Lights[MAX_LIGHTS];
+            mat4  u_ShadowMatrices[MAX_SHADOW_CASTERS];
         };
 
         // 与 C++ 侧 ShadowData 的 std140 布局严格对应，由 Renderer::BeginShadowPass 上传
@@ -206,7 +211,6 @@ namespace {
         uniform float u_Metallic;   // 金属度：0 电介质 / 1 金属
         uniform float u_Roughness;  // 粗糙度：越小越光滑
         uniform float u_AO;         // 环境光遮蔽（只作用于环境光照项）
-        uniform float u_Exposure;    // 曝光（ACES tonemap 之前相乘）
 
         layout(location = 0) out vec4 o_Color;
 
@@ -259,16 +263,7 @@ namespace {
             return F0 * ab.x + ab.y;
         }
 
-        // ACES filmic tonemap（Narkowicz 近似），压缩高光避免过曝发白
-        vec3 ACESFilm(vec3 color)
-        {
-            const float a = 2.51;
-            const float b = 0.03;
-            const float c = 2.43;
-            const float d = 0.59;
-            const float e = 0.14;
-            return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
-        }
+        // ACES filmic tonemap 移至后处理链（PostProcess），本着色器输出线性 HDR 颜色
 
         // 方向光阴影：世界坐标投影到光空间，与深度图比较（3x3 PCF），返回可见度（1 完全受光 / 0 全阴影）
         float ComputeVisibility(vec3 normal, vec3 lightDirection)
@@ -306,7 +301,7 @@ namespace {
 
             vec3 directLight = vec3(0.0);
 
-            for (int i = 0; i < u_LightCount; ++i) {
+            for (int i = 0; i < u_Counts.x; ++i) {
                 const int type = int(u_Lights[i].positionType.w + 0.5);
 
                 vec3 lightDirection;  // 从着色点指向光源
@@ -320,8 +315,9 @@ namespace {
                     float distance = length(toLight);
                     lightDirection = toLight / max(distance, 0.0001);
 
-                    float falloff = clamp(1.0 - distance / max(u_Lights[i].directionRange.w, 0.0001), 0.0, 1.0);
-                    attenuation = falloff * falloff;
+                    // 窗函数截断的平方反比衰减（intensity 为 1 单位距离处的照度）
+                    float w = clamp(1.0 - pow(distance / max(u_Lights[i].directionRange.w, 0.0001), 4.0), 0.0, 1.0);
+                    attenuation = (w * w) / max(distance * distance, 0.01);
 
                     if (type == 2) {
                         float theta = dot(lightDirection, normalize(-u_Lights[i].directionRange.xyz));
@@ -355,9 +351,8 @@ namespace {
             vec3 ambientSpecular = ambient * EnvBRDFApprox(F0, roughness, NdotV);
 
             vec3 color = directLight + ambientDiffuse + ambientSpecular;
-            color = ACESFilm(color * u_Exposure);  // tonemap 压缩高光
-            color = pow(color, vec3(1.0 / 2.2));   // gamma 校正（输出 sRGB）
 
+            // 输出线性 HDR 颜色（曝光 / ACES tonemap / gamma 由 PostProcess 统一处理）
             o_Color = vec4(color, v_Color.a * u_Albedo.a);
         }
     )";
@@ -524,8 +519,6 @@ void ShadowDemoLayer::OnAttach()
     // 阴影贴图固定绑定到约定纹理单元，只需设置一次
     m_litShader->Bind();
     m_litShader->SetInt("u_ShadowMap", SHADOW_TEXTURE_UNIT);
-
-    std::cout << "ShadowDemo OnAttach" << std::endl;
 }
 
 void ShadowDemoLayer::OnDetach() {}
@@ -535,6 +528,10 @@ void ShadowDemoLayer::OnUpdate()
     if (!m_active) {
         return;
     }
+
+    // HDR 路径：本场景输出线性 HDR 颜色，曝光 / tonemap 交给引擎后处理链
+    Renderer::SetHDREnabled(true);
+    Renderer::SetExposure(m_exposure);
 
     RenderCommand::Clear();
 
@@ -576,7 +573,6 @@ void ShadowDemoLayer::OnUpdate()
 
     // 地面（只接收阴影，不参与投影；粗糙的非金属材质）
     m_litShader->Bind();
-    m_litShader->SetFloat("u_Exposure", m_exposure);
     m_litShader->SetMat4("u_Transform", glm::mat4(1.0f));
     m_litShader->SetFloat4("u_Albedo", glm::vec4(0.55f, 0.58f, 0.62f, 1.0f));
     m_litShader->SetFloat("u_Metallic", 0.0f);

@@ -165,6 +165,19 @@ namespace OiEngine {
 	    glDeleteShader(fragmentShader);
 	}
 
+	// 计算着色器：只编译一个 GL_COMPUTE_SHADER 阶段
+	OpenGLShader::OpenGLShader(const std::string& name, const std::string& computeSrc)
+		: m_name(name), m_isCompute(true)
+	{
+		unsigned int computeShader = CompileShader(GL_COMPUTE_SHADER, computeSrc);
+		if (computeShader == 0) {
+			return;
+		}
+
+		m_rendererID = LinkShader({ computeShader });
+		glDeleteShader(computeShader);
+	}
+
 	OpenGLShader::~OpenGLShader()
 	{
 		glDeleteProgram(m_rendererID);
@@ -226,6 +239,15 @@ namespace OiEngine {
 	{
         int location = GetLocationFromCache(name);
 	    glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(value));
+	}
+
+	void OpenGLShader::Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) const
+	{
+		OI_ASSERT(m_isCompute, "Dispatch is only valid for compute shaders!");
+		(void)m_isCompute;
+
+		glUseProgram(m_rendererID);
+		glDispatchCompute(groupsX, groupsY, groupsZ);
 	}
 
     int OpenGLShader::GetLocationFromCache(const std::string &name)

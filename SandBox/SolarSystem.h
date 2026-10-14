@@ -58,7 +58,7 @@ private:
     bool m_paused = false;
     float m_simulationTime = 0.0f;
     float m_ambientIntensity = 0.06f;
-    float m_sunIntensity = 1.2f;
+    float m_sunIntensity = 320.0f;  // 物理衰减下为"1 单位距离处的照度"，行星轨道半径 2~12
     float m_sunRange = 45.0f;
     bool m_showDemoWindow = false;
 };

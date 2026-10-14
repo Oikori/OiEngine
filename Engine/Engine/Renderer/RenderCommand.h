@@ -30,6 +30,17 @@ namespace OiEngine {
 			s_RendererAPI->ClearDepth();
 		}
 
+		static void SetDepthTest(bool enabled)
+		{
+			s_RendererAPI->SetDepthTest(enabled);
+		}
+
+		// 内存屏障：compute 写入 SSBO 后，让后续绘制（片元着色器读 SSBO）能看到结果
+		static void MemoryBarrierShaderStorage()
+		{
+			s_RendererAPI->MemoryBarrierShaderStorage();
+		}
+
 		static void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0)
 		{
 			s_RendererAPI->DrawIndexed(vertexArray, indexCount);
@@ -43,6 +54,16 @@ namespace OiEngine {
 		static void BindTexture2D(uint32_t slot, uint32_t textureRendererID)
 		{
 			s_RendererAPI->BindTexture2D(slot, textureRendererID);
+		}
+
+		static void BindTexture2DArray(uint32_t slot, uint32_t textureRendererID)
+		{
+			s_RendererAPI->BindTexture2DArray(slot, textureRendererID);
+		}
+
+		static void BindTextureCube(uint32_t slot, uint32_t textureRendererID)
+		{
+			s_RendererAPI->BindTextureCube(slot, textureRendererID);
 		}
 
 		static void SetLineWidth(float width)

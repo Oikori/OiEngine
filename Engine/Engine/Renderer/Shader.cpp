@@ -26,6 +26,17 @@ namespace OiEngine {
 		return nullptr;
 	}
 
+	Ref<Shader> Shader::CreateCompute(const std::string& name, const std::string& computeSrc)
+	{
+		switch (RendererAPI::GetAPI()) {
+			case RendererAPI::API::None:    OI_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(name, computeSrc);
+		}
+
+		OI_ASSERT(false, "Unknown RendererAPI!");
+		return nullptr;
+	}
+
 	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
 	{
 		OI_ASSERT(!Exists(name), "Shader already exists!");
