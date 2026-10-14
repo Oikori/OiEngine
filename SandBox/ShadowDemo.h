@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <vector>
 
 #include "OiEngine.h"
@@ -17,7 +18,8 @@ public:
     float distance = 17.0f;
 };
 
-// 方向光阴影演示：地面 + 一组投射阴影的几何体，太阳方向 / 阴影偏移 / 相机均可调
+// 方向光阴影演示（PBR）：地面 + 一组投射阴影的几何体，光照为 Cook-Torrance PBR，
+// 太阳方向 / 曝光 / 材质 / 阴影偏移 / 相机均可调
 class ShadowDemoLayer : public OiEngine::Layer {
 public:
     ShadowDemoLayer() : Layer("ShadowDemo") {}
@@ -33,10 +35,10 @@ public:
     bool IsActive() const { return m_active; }
 
 private:
-    // 参与投影的几何体：单位网格 + 每帧变换
+    // 参与投影的几何体：单位网格 + 每帧变换 + PBR 材质
     struct Instance {
         OiEngine::Ref<OiEngine::VertexArray> mesh;
-        glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+        glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};  // 基础色（albedo）
         glm::vec3 position{0.0f};
         glm::vec3 scale{1.0f};
         glm::vec3 basePosition{0.0f};  // 上下浮动（bob）的基准位置
@@ -44,6 +46,9 @@ private:
         float angle = 0.0f;
         float bobAmplitude = 0.0f;     // 悬浮浮动幅度
         float bobPhase = 0.0f;
+        float metallic = 0.0f;   // 金属度：0 电介质 / 1 金属
+        float roughness = 0.5f;  // 粗糙度：越小越光滑（镜面高光越锐利）
+        float ao = 1.0f;         // 环境光遮蔽（只作用于环境光照项）
     };
 
     glm::mat4 InstanceTransform(const Instance& instance) const;
@@ -67,11 +72,13 @@ private:
     float m_time = 0.0f;
     float m_sunYaw = glm::radians(35.0f);    // 太阳方位角（弧度，SliderAngle 直接编辑）
     float m_sunPitch = glm::radians(34.0f);  // 太阳仰角
-    float m_sunIntensity = 1.35f;
-    float m_ambientIntensity = 0.16f;
+    float m_sunIntensity = 3.0f;             // 太阳辐照度（PBR 下漫反射项除以 PI，故比 Lambert 时期更大）
+    float m_ambientIntensity = 0.35f;
+    float m_exposure = 1.0f;                 // 曝光（ACES tonemap 之前相乘）
     float m_shadowBias = 0.0025f;
     float m_shadowRadius = 13.0f;  // 阴影正交视锥覆盖的包围球半径
     bool m_autoRotate = true;
     bool m_showShadowMap = false;
     bool m_showDemoWindow = false;
+    std::size_t m_glossySphereIndex = 0;  // UI 里实时调材质的实例（悬浮球）
 };

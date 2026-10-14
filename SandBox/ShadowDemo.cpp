@@ -135,7 +135,9 @@ namespace {
 
     // ---------- 着色器 ----------
 
-    // 光照着色器：相比太阳系版本增加了顶点法线（立方体需要）、u_Tint 与方向光阴影（3x3 PCF）
+    // 光照着色器（PBR）：顶点阶段做变换并传递世界坐标 / 法线 / 顶点色
+    // 片元阶段为 Cook-Torrance 直接光照（GGX 分布 + Smith 几何项 + Schlick 菲涅尔）
+    // + 环境光近似（Karis 解析 env BRDF），方向光乘阴影可见度（3x3 PCF）；输出前做 ACES tonemap 与 gamma 校正
     const char* LIT_VERTEX_SHADER = R"(
         #version 450 core
 
@@ -146,7 +148,7 @@ namespace {
         layout(std140, binding = 0) uniform Camera {
             mat4 u_Projection;
             mat4 u_View;
-            vec4 u_CameraPosition;  // xyz: 世界空间位置（本着色器未用）
+            vec4 u_CameraPosition;  // xyz: 世界空间位置（片元着色器计算视线方向）
         };
 
         uniform mat4 u_Transform;
@@ -170,6 +172,7 @@ namespace {
         #version 450 core
 
         #define MAX_LIGHTS 32
+        #define PI 3.141592653589793
 
         // 与 C++ 侧 LightingData / LightData 的 std140 布局严格对应
         struct Light {
@@ -191,14 +194,81 @@ namespace {
             vec4 u_ShadowParams;  // x: 1/阴影贴图尺寸（texel 大小）；y: 深度偏移基数
         };
 
+        // 相机 UBO：与顶点着色器中的同名块保持一致（同一 binding = 0），这里用 u_CameraPosition 计算视线方向
+        layout(std140, binding = 0) uniform Camera {
+            mat4 u_Projection;
+            mat4 u_View;
+            vec4 u_CameraPosition;
+        };
+
         uniform sampler2D u_ShadowMap;
-        uniform vec4 u_Tint;
+        uniform vec4 u_Albedo;      // rgb: 基础色（线性空间）；a: 不透明度
+        uniform float u_Metallic;   // 金属度：0 电介质 / 1 金属
+        uniform float u_Roughness;  // 粗糙度：越小越光滑
+        uniform float u_AO;         // 环境光遮蔽（只作用于环境光照项）
+        uniform float u_Exposure;    // 曝光（ACES tonemap 之前相乘）
 
         layout(location = 0) out vec4 o_Color;
 
         in vec3 v_WorldPosition;
         in vec3 v_Normal;
         in vec4 v_Color;
+
+        // ---------- PBR 基础函数 ----------
+
+        // GGX / Trowbridge-Reitz 法线分布函数
+        float DistributionGGX(vec3 N, vec3 H, float roughness)
+        {
+            float a = roughness * roughness;
+            float a2 = a * a;
+            float NdotH = max(dot(N, H), 0.0);
+            float NdotH2 = NdotH * NdotH;
+
+            float denominator = NdotH2 * (a2 - 1.0) + 1.0;
+            return a2 / max(PI * denominator * denominator, 0.0001);
+        }
+
+        // Schlick-GGX 几何项（直接光照版 k = (r + 1)^2 / 8）
+        float GeometrySchlickGGX(float NdotX, float roughness)
+        {
+            float r = roughness + 1.0;
+            float k = (r * r) / 8.0;
+            return NdotX / max(NdotX * (1.0 - k) + k, 0.0001);
+        }
+
+        float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+        {
+            return GeometrySchlickGGX(max(dot(N, V), 0.0), roughness) *
+                   GeometrySchlickGGX(max(dot(N, L), 0.0), roughness);
+        }
+
+        // Schlick 菲涅尔近似
+        vec3 FresnelSchlick(float cosTheta, vec3 F0)
+        {
+            return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+        }
+
+        // Karis 解析 env BRDF 近似：场景没有环境贴图，直接把环境光颜色当作常量环境辐照度
+        vec3 EnvBRDFApprox(vec3 F0, float roughness, float NdotV)
+        {
+            const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+            const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+            vec4 r = roughness * c0 + c1;
+            float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+            vec2 ab = vec2(-1.04, 1.04) * a004 + r.zw;
+            return F0 * ab.x + ab.y;
+        }
+
+        // ACES filmic tonemap（Narkowicz 近似），压缩高光避免过曝发白
+        vec3 ACESFilm(vec3 color)
+        {
+            const float a = 2.51;
+            const float b = 0.03;
+            const float c = 2.43;
+            const float d = 0.59;
+            const float e = 0.14;
+            return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+        }
 
         // 方向光阴影：世界坐标投影到光空间，与深度图比较（3x3 PCF），返回可见度（1 完全受光 / 0 全阴影）
         float ComputeVisibility(vec3 normal, vec3 lightDirection)
@@ -225,8 +295,16 @@ namespace {
 
         void main()
         {
-            vec3 normal = normalize(v_Normal);
-            vec3 color = u_Ambient.rgb * u_Ambient.a;
+            vec3 albedo = v_Color.rgb * u_Albedo.rgb;
+            float metallic = clamp(u_Metallic, 0.0, 1.0);
+            float roughness = clamp(u_Roughness, 0.045, 1.0);  // 下限避免粗糙度趋零时高光数值爆炸
+            vec3 F0 = mix(vec3(0.04), albedo, metallic);        // 电介质基础反射率 0.04
+
+            vec3 N = normalize(v_Normal);
+            vec3 V = normalize(u_CameraPosition.xyz - v_WorldPosition);
+            float NdotV = max(dot(N, V), 0.0001);
+
+            vec3 directLight = vec3(0.0);
 
             for (int i = 0; i < u_LightCount; ++i) {
                 const int type = int(u_Lights[i].positionType.w + 0.5);
@@ -234,9 +312,9 @@ namespace {
                 vec3 lightDirection;  // 从着色点指向光源
                 float attenuation = 1.0;
 
-                if (type == 0) {  // 方向光：positionType.xyz 为传播方向，取反得到指向光源的方向；按方向光阴影衰减
+                if (type == 0) {  // 方向光：positionType.xyz 为传播方向，取反得到指向光源的方向；阴影可见度即衰减
                     lightDirection = -normalize(u_Lights[i].positionType.xyz);
-                    attenuation = ComputeVisibility(normal, lightDirection);
+                    attenuation = ComputeVisibility(N, lightDirection);
                 } else {  // 点光源 / 聚光灯
                     vec3 toLight = u_Lights[i].positionType.xyz - v_WorldPosition;
                     float distance = length(toLight);
@@ -252,11 +330,35 @@ namespace {
                     }
                 }
 
-                float diffuse = max(dot(normal, lightDirection), 0.0);
-                color += u_Lights[i].colorIntensity.rgb * u_Lights[i].colorIntensity.w * diffuse * attenuation;
+                float NdotL = max(dot(N, lightDirection), 0.0);
+                if (NdotL <= 0.0 || attenuation <= 0.0) {
+                    continue;
+                }
+
+                vec3 H = normalize(V + lightDirection);
+                vec3 radiance = u_Lights[i].colorIntensity.rgb * u_Lights[i].colorIntensity.w;
+
+                float D = DistributionGGX(N, H, roughness);
+                float G = GeometrySmith(N, V, lightDirection, roughness);
+                vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+                // 镜面项 + 能量守恒的漫反射项（金属无漫反射）
+                vec3 specular = D * G * F / max(4.0 * NdotV * NdotL, 0.0001);
+                vec3 kD = (1.0 - F) * (1.0 - metallic);
+
+                directLight += (kD * albedo / PI + specular) * radiance * NdotL * attenuation;
             }
 
-            o_Color = vec4(v_Color.rgb * u_Tint.rgb * color, v_Color.a * u_Tint.a);
+            // 环境光：漫反射（乘 AO）+ Karis 解析镜面近似
+            vec3 ambient = u_Ambient.rgb * u_Ambient.a * u_AO;
+            vec3 ambientDiffuse = ambient * albedo * (1.0 - metallic);
+            vec3 ambientSpecular = ambient * EnvBRDFApprox(F0, roughness, NdotV);
+
+            vec3 color = directLight + ambientDiffuse + ambientSpecular;
+            color = ACESFilm(color * u_Exposure);  // tonemap 压缩高光
+            color = pow(color, vec3(1.0 / 2.2));   // gamma 校正（输出 sRGB）
+
+            o_Color = vec4(color, v_Color.a * u_Albedo.a);
         }
     )";
 
@@ -372,9 +474,10 @@ void ShadowDemoLayer::OnAttach()
         m_sphereMesh = CreateMesh(vertices, indices);
     }
 
-    // 场景布置：中心高塔 + 旋转方块 + 悬浮球 + 矮墙等，全部参与阴影投影
+    // 场景布置：中心高塔 + 旋转方块 + 悬浮球 + 矮墙等，全部参与阴影投影；
+    // 每个实例带独立 PBR 材质（金属度 / 粗糙度不同，便于对比镜面高光）
     const auto addInstance = [this](const glm::vec4& color, const glm::vec3& position, const glm::vec3& scale,
-                                    bool sphere, float spinSpeed, float bobAmplitude, float bobPhase)
+                                    bool sphere, float spinSpeed, float bobAmplitude, float bobPhase) -> Instance&
     {
         Instance instance;
         instance.mesh = sphere ? m_sphereMesh : m_boxMesh;
@@ -386,16 +489,32 @@ void ShadowDemoLayer::OnAttach()
         instance.bobAmplitude = bobAmplitude;
         instance.bobPhase = bobPhase;
         m_instances.push_back(instance);
+        return m_instances.back();
     };
 
-    addInstance(glm::vec4(0.85f, 0.36f, 0.30f, 1.0f), glm::vec3( 0.0f, 2.0f,  0.0f), glm::vec3(2.0f, 4.0f, 2.0f), false, 0.0f, 0.0f, 0.0f);   // 中心高塔
-    addInstance(glm::vec4(0.30f, 0.55f, 0.90f, 1.0f), glm::vec3(-4.2f, 0.9f,  1.6f), glm::vec3(1.8f, 1.8f, 1.8f), false, 0.9f, 0.0f, 0.0f);   // 旋转方块
-    addInstance(glm::vec4(0.25f, 0.80f, 0.70f, 1.0f), glm::vec3( 3.6f, 2.6f,  0.4f), glm::vec3(1.6f, 1.6f, 1.6f), true,  0.0f, 0.6f, 0.0f);   // 悬浮球
-    addInstance(glm::vec4(0.90f, 0.75f, 0.30f, 1.0f), glm::vec3( 2.6f, 0.6f,  3.4f), glm::vec3(1.2f, 1.2f, 1.2f), false, 1.4f, 0.0f, 0.0f);   // 小方块
-    addInstance(glm::vec4(0.50f, 0.46f, 0.74f, 1.0f), glm::vec3(-0.5f, 0.5f, -5.6f), glm::vec3(9.0f, 1.0f, 0.8f), false, 0.0f, 0.0f, 0.0f);   // 矮墙
-    addInstance(glm::vec4(0.90f, 0.55f, 0.25f, 1.0f), glm::vec3(-2.4f, 0.6f, -2.6f), glm::vec3(1.2f, 1.2f, 1.2f), true,  0.0f, 0.0f, 0.0f);   // 小球
+    Instance& tower = addInstance(glm::vec4(0.85f, 0.36f, 0.30f, 1.0f), glm::vec3( 0.0f, 2.0f,  0.0f), glm::vec3(2.0f, 4.0f, 2.0f), false, 0.0f, 0.0f, 0.0f);   // 中心高塔
+    tower.roughness = 0.75f;
 
-    // 光照：暖色太阳方向光（每帧更新方向）+ 微弱冷色环境光
+    Instance& metalBox = addInstance(glm::vec4(0.30f, 0.55f, 0.90f, 1.0f), glm::vec3(-4.2f, 0.9f,  1.6f), glm::vec3(1.8f, 1.8f, 1.8f), false, 0.9f, 0.0f, 0.0f);  // 旋转方块（金属）
+    metalBox.metallic = 0.9f;
+    metalBox.roughness = 0.25f;
+
+    Instance& glossySphere = addInstance(glm::vec4(0.25f, 0.80f, 0.70f, 1.0f), glm::vec3( 3.6f, 2.6f,  0.4f), glm::vec3(1.6f, 1.6f, 1.6f), true,  0.0f, 0.6f, 0.0f);  // 悬浮球（光滑非金属）
+    glossySphere.roughness = 0.15f;
+    m_glossySphereIndex = m_instances.size() - 1;  // UI 里可实时调节该球的材质
+
+    Instance& goldBox = addInstance(glm::vec4(0.90f, 0.75f, 0.30f, 1.0f), glm::vec3( 2.6f, 0.6f,  3.4f), glm::vec3(1.2f, 1.2f, 1.2f), false, 1.4f, 0.0f, 0.0f);   // 小方块（金属）
+    goldBox.metallic = 1.0f;
+    goldBox.roughness = 0.40f;
+
+    Instance& wall = addInstance(glm::vec4(0.50f, 0.46f, 0.74f, 1.0f), glm::vec3(-0.5f, 0.5f, -5.6f), glm::vec3(9.0f, 1.0f, 0.8f), false, 0.0f, 0.0f, 0.0f);   // 矮墙
+    wall.roughness = 0.90f;
+
+    Instance& orb = addInstance(glm::vec4(0.90f, 0.55f, 0.25f, 1.0f), glm::vec3(-2.4f, 0.6f, -2.6f), glm::vec3(1.2f, 1.2f, 1.2f), true,  0.0f, 0.0f, 0.0f);   // 小球（半金属）
+    orb.metallic = 0.6f;
+    orb.roughness = 0.30f;
+
+    // 光照：暖色太阳方向光（每帧更新方向）+ 微弱冷色环境光；PBR 下环境光同时提供环境镜面近似
     m_scene.ambientColor = glm::vec3(0.45f, 0.52f, 0.65f);
     m_scene.ambientIntensity = m_ambientIntensity;
     m_scene.directionalLights.push_back(DirectionalLight{});
@@ -451,14 +570,18 @@ void ShadowDemoLayer::OnUpdate()
     }
     Renderer::EndShadowPass(m_shadowMap);
 
-    // 2. 主场景：阴影贴图绑定到约定纹理单元，光照着色器里做 PCF 采样
+    // 2. 主场景：阴影贴图绑定到约定纹理单元，光照着色器里做 PBR 着色（方向光含 PCF 阴影）
     Renderer::BeginScene(m_camera, m_scene);
     m_shadowMap->BindDepthTexture(SHADOW_TEXTURE_UNIT);
 
-    // 地面（只接收阴影）
+    // 地面（只接收阴影，不参与投影；粗糙的非金属材质）
     m_litShader->Bind();
+    m_litShader->SetFloat("u_Exposure", m_exposure);
     m_litShader->SetMat4("u_Transform", glm::mat4(1.0f));
-    m_litShader->SetFloat4("u_Tint", glm::vec4(0.55f, 0.58f, 0.62f, 1.0f));
+    m_litShader->SetFloat4("u_Albedo", glm::vec4(0.55f, 0.58f, 0.62f, 1.0f));
+    m_litShader->SetFloat("u_Metallic", 0.0f);
+    m_litShader->SetFloat("u_Roughness", 0.85f);
+    m_litShader->SetFloat("u_AO", 1.0f);
     RenderCommand::DrawIndexed(m_groundMesh);
 
     // 投影物体
@@ -488,11 +611,19 @@ void ShadowDemoLayer::OnImGuiRender()
     ImGui::Text("FPS: %.1f (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
 
     ImGui::Separator();
-    ImGui::Text("Sun");
+    ImGui::Text("Lighting (PBR)");
     ImGui::SliderAngle("Sun yaw", &m_sunYaw, 0.0f, 360.0f);
     ImGui::SliderAngle("Sun pitch", &m_sunPitch, 10.0f, 85.0f);
-    ImGui::SliderFloat("Sun intensity", &m_sunIntensity, 0.0f, 3.0f, "%.2f");
-    ImGui::SliderFloat("Ambient", &m_ambientIntensity, 0.0f, 0.5f, "%.3f");
+    ImGui::SliderFloat("Sun intensity", &m_sunIntensity, 0.0f, 8.0f, "%.2f");
+    ImGui::SliderFloat("Ambient", &m_ambientIntensity, 0.0f, 1.0f, "%.3f");
+    ImGui::SliderFloat("Exposure", &m_exposure, 0.1f, 3.0f, "%.2f");
+
+    // 悬浮球材质：实时对比金属度 / 粗糙度对高光的影响
+    ImGui::Separator();
+    ImGui::Text("Material (glossy sphere)");
+    Instance& glossySphere = m_instances[m_glossySphereIndex];
+    ImGui::SliderFloat("Metallic", &glossySphere.metallic, 0.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("Roughness", &glossySphere.roughness, 0.05f, 1.0f, "%.2f");
 
     ImGui::Separator();
     ImGui::Text("Shadow");
@@ -545,6 +676,9 @@ void ShadowDemoLayer::SubmitInstance(const Instance& instance)
 {
     m_litShader->Bind();
     m_litShader->SetMat4("u_Transform", InstanceTransform(instance));
-    m_litShader->SetFloat4("u_Tint", instance.color);
+    m_litShader->SetFloat4("u_Albedo", instance.color);
+    m_litShader->SetFloat("u_Metallic", instance.metallic);
+    m_litShader->SetFloat("u_Roughness", instance.roughness);
+    m_litShader->SetFloat("u_AO", instance.ao);
     RenderCommand::DrawIndexed(instance.mesh);
 }

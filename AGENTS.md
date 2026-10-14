@@ -18,7 +18,7 @@
 - `SandBox/` — demo 可执行程序
   - `PlaneGame.h` / `PlaneGame.cpp` — 飞机大战（程序化几何 + 正交相机，全部顶点色，无图片资源）
   - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
-  - `ShadowDemo.h` / `ShadowDemo.cpp` — 阴影演示（地面 + 几何体 + 可调方向光；详见「阴影」一节）
+  - `ShadowDemo.h` / `ShadowDemo.cpp` — 阴影演示（地面 + 几何体 + PBR 光照 + 可调方向光；详见「阴影」一节）
   - `Platformer/` — 平台跳跃小游戏（详见「平台跳跃手感」一节）
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
   - 四个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3/F5 切换 `SetActive`；
@@ -155,7 +155,9 @@ cmake --preset mingw-debug      # 或 mingw-release
   只对方向光乘可见度（点光 / 聚光分支不采样）
 - 深度纹理通过 `ShadowMap::BindDepthTexture(slot)` 绑定（内部 `RenderCommand::BindTexture2D`），再用 `shader->SetInt("u_ShadowMap", slot)` 指定采样单元
 - 底层接口：`Framebuffer` 增加 `GetDepthAttachmentRendererID()` 与 `DEPTH24` 格式；`RenderCommand::ClearDepth()`、`RenderCommand::BindTexture2D(slot, textureID)`
-- SandBox F5「阴影演示」：地面 + 立方体 / 球体 + 可调太阳方向与 bias 的环绕相机；UI 勾选可预览 shadow map（`ImGui::Image` 绑定深度纹理）
+- SandBox F5「阴影演示」：地面 + 立方体 / 球体 + 可调太阳方向与 bias 的环绕相机；光照着色器为 Cook-Torrance PBR
+  （GGX 分布 + Smith 几何项 + Schlick 菲涅尔；环境光用 Karis 解析 env BRDF 近似，输出前做 ACES tonemap 与 gamma 校正，曝光可调），
+  材质（albedo / metallic / roughness / AO）逐实例通过 uniform 传入；UI 勾选可预览 shadow map（`ImGui::Image` 绑定深度纹理）
 
 ## 数学库（glm）
 
