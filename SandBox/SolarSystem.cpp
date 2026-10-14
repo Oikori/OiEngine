@@ -430,6 +430,11 @@ void SolarSystemLayer::OnUpdate()
         return;
     }
 
+    // 本场景为非 HDR 路径：显式声明引擎全局渲染状态，
+    // 否则从 HDR 场景（F5 阴影演示 / F6 室内多光源）切过来会残留 HDR 开关（颜色被二次 tonemap → 整体泛白）
+    Renderer::SetHDREnabled(false);
+    Renderer::SetLightCullingEnabled(false);  // 本场景不读 cluster 列表，避免空跑 compute 剔除
+
     RenderCommand::Clear();
 
     // 时间推进受 UI 控制（暂停 / 倍速），不直接依赖全局启动时间

@@ -1168,6 +1168,11 @@ void PlaneGameLayer::OnUpdate()
         return;
     }
 
+    // 本场景为非 HDR 路径：显式声明引擎全局渲染状态，
+    // 否则从 HDR 场景（F5 阴影演示 / F6 室内多光源）切过来会残留 HDR 开关（颜色被二次 tonemap → 整体泛白）
+    Renderer::SetHDREnabled(false);
+    Renderer::SetLightCullingEnabled(false);
+
     // 窗口尺寸变化时更新可玩区域
     const uint32_t width = Application::Get().GetWindow().GetWidth();
     const uint32_t height = Application::Get().GetWindow().GetHeight();

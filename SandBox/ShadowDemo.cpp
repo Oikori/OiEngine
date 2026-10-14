@@ -532,6 +532,8 @@ void ShadowDemoLayer::OnUpdate()
     // HDR 路径：本场景输出线性 HDR 颜色，曝光 / tonemap 交给引擎后处理链
     Renderer::SetHDREnabled(true);
     Renderer::SetExposure(m_exposure);
+    // 本场景着色器遍历全部光源、不读 cluster 列表：关掉剔除，避免残留 F6 的全局开关空跑 compute
+    Renderer::SetLightCullingEnabled(false);
 
     RenderCommand::Clear();
 

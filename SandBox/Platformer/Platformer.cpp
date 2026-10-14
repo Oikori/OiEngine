@@ -707,6 +707,11 @@ void PlatformerLayer::OnUpdate()
         return;
     }
 
+    // 本场景为非 HDR 路径：显式声明引擎全局渲染状态，
+    // 否则从 HDR 场景（F5 阴影演示 / F6 室内多光源）切过来会残留 HDR 开关（颜色被二次 tonemap → 整体泛白）
+    Renderer::SetHDREnabled(false);
+    Renderer::SetLightCullingEnabled(false);
+
     const float deltaTime = std::min(Timer::GetDeltaTime(), 0.05f);
 
     RenderCommand::Clear();

@@ -155,7 +155,8 @@ cmake --preset mingw-debug      # 或 mingw-release
   - binding 4：`uint u_ClusterLightCounts[clusterCount]`（每 cluster 光源数）
   - binding 5：`uint u_ClusterLightIndices[clusterCount * 48]`（光源索引列表，`MaxLightsPerCluster = 48`）
 - 开关与派发：`Renderer::SetLightCullingEnabled(true)`；`Renderer::BeginScene` 在上传光照 SSBO 后自动
-  `LightClustering::Dispatch()`（清计数 + compute + `MemoryBarrierShaderStorage()`）。窗口 resize 时网格随 `Renderer::OnWindowResize` 重建
+  `LightClustering::Dispatch()`（清计数 + compute + `MemoryBarrierShaderStorage()`）。窗口 resize 时网格随 `Renderer::OnWindowResize` 重建。
+  注意这是**全局开关**，切换场景会残留，各场景需在自己的 `OnUpdate` 开头显式声明（见「HDR 后处理」一节）
 - shader 侧按同一套索引规则定位 cluster（布局：slice 优先，其次 tile 行，最后 tile 列）：
 
   ```glsl
@@ -176,8 +177,11 @@ cmake --preset mingw-debug      # 或 mingw-release
 - `PostProcess`（`Engine/Engine/Renderer/PostProcess.h`）：`Renderer::SetHDREnabled(true)` 后场景渲染到
   RGBA16F 离屏目标（`FramebufferTextureFormat::RGBA16F`），`EndScene` 时全屏 tonemap（ACES + gamma + 曝光）输出到默认帧缓冲
 - **开启 HDR 的场景着色器只输出线性 HDR 颜色**（不要再自己 ACES / gamma），曝光统一用 `Renderer::SetExposure()`
-- 默认关闭时行为与旧路径完全一致（场景着色器各自 tonemap）；开关放在场景 `OnUpdate` 开头即可（只有激活的场景会执行），例如
-  `Renderer::SetHDREnabled(true); Renderer::SetExposure(m_exposure);`
+- 默认关闭时行为与旧路径完全一致（场景着色器各自 tonemap）
+- **HDR / 光源剔除是引擎全局开关，每个场景必须在 `OnUpdate` 开头显式声明自己的状态**：HDR 场景
+  `Renderer::SetHDREnabled(true); Renderer::SetExposure(m_exposure);`，非 HDR 场景 `Renderer::SetHDREnabled(false);`。
+  未激活的场景在 `OnUpdate` 开头就 `return`、什么都不设，所以只写不关会让开关残留到下一个场景——
+  HDR 开关残留到非 HDR 场景时颜色被二次 tonemap，画面整体泛白（`SetLightCullingEnabled` 同理：残留会让不读 cluster 的场景空跑 compute）
 - `PostProcess::GetColorTextureRendererID()` 可拿到 HDR 颜色纹理做 ImGui 预览
 - 后续接入 bloom 等 pass 时，扩展 `PostProcess::EndScene` 里的 pass 链即可（现只有 tonemap 一个 pass）
 
