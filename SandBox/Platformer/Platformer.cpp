@@ -29,12 +29,14 @@ namespace {
     constexpr float FLAG_HEIGHT = 150.0f;
 
     // ---- 世界与视图 ----
+    constexpr float GROUND_TOP = -400.0f;          // 起始地面顶面
     constexpr float WORLD_MIN_X = -490.0f;
-    constexpr float WORLD_MAX_X = 3380.0f;
-    constexpr float WORLD_KILL_Y = -620.0f;        // 摔到该高度以下即整关重置
+    constexpr float WORLD_MAX_X = 5040.0f;
+    constexpr float WORLD_KILL_Y = -620.0f;        // 摔到该高度以下即死亡
     constexpr float VIEW_HALF_HEIGHT = 450.0f;     // 正交半高（世界单位与窗口像素 1:1）
     constexpr float CAMERA_LOOKAHEAD = 70.0f;      // 相机朝移动方向的前瞻量
     constexpr float CLOUD_LOOP = 2600.0f;          // 云层视差图案的循环宽度
+    constexpr float HILL_LOOP = 2200.0f;           // 远山视差图案的循环宽度
 
     // ---- 配色 ----
     const glm::vec4 SKY_TOP(0.30f, 0.56f, 0.86f, 1.0f);
@@ -43,6 +45,17 @@ namespace {
     const glm::vec4 GRASS_TOP(0.46f, 0.79f, 0.39f, 1.0f);
     const glm::vec4 STONE_BODY(0.36f, 0.40f, 0.47f, 1.0f);
     const glm::vec4 STONE_TOP(0.62f, 0.68f, 0.76f, 1.0f);
+    const glm::vec4 MOVER_BODY(0.46f, 0.35f, 0.25f, 1.0f);     // 移动平台：木料质感，和静态平台区分
+    const glm::vec4 MOVER_TOP(0.83f, 0.68f, 0.41f, 1.0f);
+    const glm::vec4 MOVER_RIVET(0.28f, 0.23f, 0.18f, 1.0f);
+    const glm::vec4 SPIKE_BODY(0.56f, 0.60f, 0.69f, 1.0f);
+    const glm::vec4 SPIKE_TIP(0.88f, 0.92f, 0.97f, 1.0f);
+    const glm::vec4 SPIKE_BASE(0.30f, 0.32f, 0.39f, 1.0f);
+    const glm::vec4 SUPPORT_COLOR(0.31f, 0.34f, 0.41f, 1.0f); // 闸门支柱等背景构件
+    const glm::vec4 CHECKPOINT_OFF(0.60f, 0.64f, 0.72f, 1.0f);
+    const glm::vec4 CHECKPOINT_ON(0.34f, 0.88f, 0.52f, 1.0f);
+    const glm::vec4 HILL_FAR(0.62f, 0.75f, 0.83f, 1.0f);
+    const glm::vec4 HILL_NEAR(0.47f, 0.68f, 0.64f, 1.0f);
     const glm::vec4 PLAYER_BODY(0.95f, 0.60f, 0.29f, 1.0f);
     const glm::vec4 PLAYER_BELLY(1.00f, 0.80f, 0.48f, 1.0f);
     const glm::vec4 EYE_WHITE(1.00f, 1.00f, 1.00f, 1.0f);
@@ -52,6 +65,7 @@ namespace {
     const glm::vec4 FLAG_RED(0.92f, 0.30f, 0.36f, 1.0f);
     const glm::vec4 FLAG_POLE(0.58f, 0.62f, 0.70f, 1.0f);
     const glm::vec4 DUST(0.96f, 0.97f, 1.00f, 0.80f);
+    const glm::vec4 DEATH_SPARK(1.00f, 0.38f, 0.40f, 1.00f);
 
     std::mt19937 g_rng(0x5EED1234u);
 
@@ -166,11 +180,38 @@ namespace {
         builder.AddPolygon(outline, color, z);
     }
 
+    // ---------- 尖刺时间轴 ----------
+    // 伸缩尖刺在周期内的伸出比例（cycle 为 [0,1) 相位）：
+    //   0.00–0.50 完全缩回（安全，只留基座）
+    //   0.50–0.60 预警：尖头微微露出（不致命，提示"要弹出来了"）
+    //   0.60–0.67 快速弹出（越过致命阈值后开始危险）
+    //   0.67–0.90 完全伸出（致命）
+    //   0.90–1.00 收回
+    float SpikeExtendAt(float cycle)
+    {
+        const float t = cycle - std::floor(cycle);
+        if (t < 0.50f) {
+            return 0.0f;
+        }
+        if (t < 0.60f) {
+            const float u = (t - 0.50f) / 0.10f;
+            return 0.14f + 0.08f * (0.5f - 0.5f * std::cos(u * PI));   // 0.14 → 0.22
+        }
+        if (t < 0.67f) {
+            const float u = (t - 0.60f) / 0.07f;
+            return 0.22f + 0.78f * u * u;
+        }
+        if (t < 0.90f) {
+            return 1.0f;
+        }
+        return 1.0f - (t - 0.90f) / 0.10f;
+    }
+
     // ---------- 网格资源 ----------
 
     Ref<VertexArray> CreateSolidMesh()
     {
-        // 单位矩形：宽 1 高 1、中心在原点，便于用 Scale 复用（平台 / 旗杆 / 旗顶）
+        // 单位矩形：宽 1 高 1、中心在原点，便于用 Scale 复用（平台 / 旗杆 / 基座等）
         MeshBuilder builder;
         const glm::vec4 white(1.0f, 1.0f, 1.0f, 1.0f);
         const uint32_t base = builder.AddVertex(glm::vec2(-0.5f, 0.5f), 0.0f, white);
@@ -226,11 +267,67 @@ namespace {
 
     Ref<VertexArray> CreateFlagMesh()
     {
-        // 三角旗面：附着点在左侧中点，向右展开
+        // 终点旗面（顶点色即红色）：附着点在左侧中点，向右展开
         MeshBuilder builder;
         builder.AddPolygon({ { 0.0f, 0.5f }, { 0.9f, 0.25f }, { 0.0f, 0.0f } }, FLAG_RED, 0.0f);
         return BuildMesh(builder);
     }
+
+    Ref<VertexArray> CreatePennantMesh()
+    {
+        // 存档点小旗（白色顶点色，绘制时用 tint 上色：未激活灰 / 激活绿）
+        MeshBuilder builder;
+        builder.AddPolygon({ { 0.0f, 0.5f }, { 0.9f, 0.25f }, { 0.0f, 0.0f } },
+                           glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), 0.0f);
+        return BuildMesh(builder);
+    }
+
+    Ref<VertexArray> CreateSpikeToothMesh()
+    {
+        // 单根尖齿：底边 y = 0、齿尖 y = 1、水平居中（宽 1），
+        // 绘制时按「齿宽 x 伸出高度」缩放，右侧留一条亮面表达光照
+        MeshBuilder builder;
+        builder.AddPolygon({ { -0.5f, 0.0f }, { 0.5f, 0.0f }, { 0.0f, 1.0f } }, SPIKE_BODY, 0.0f);
+        builder.AddPolygon({ { -0.46f, 0.0f }, { -0.16f, 0.0f }, { 0.0f, 1.0f } }, SPIKE_TIP, 0.02f);
+        return BuildMesh(builder);
+    }
+
+    Ref<VertexArray> CreateHillMesh()
+    {
+        // 远山：单位半圆（宽 1、高 1），底边贴在 y = 0 上
+        constexpr int SEGMENTS = 20;
+        MeshBuilder builder;
+        std::vector<glm::vec2> points;
+        points.reserve(SEGMENTS + 1);
+        for (int i = 0; i <= SEGMENTS; ++i) {
+            const float angle = PI * static_cast<float>(i) / static_cast<float>(SEGMENTS);
+            points.push_back(glm::vec2(std::cos(angle) * 0.5f, std::sin(angle)));
+        }
+        builder.AddPolygon(points, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), 0.0f);
+        return BuildMesh(builder);
+    }
+
+    // ---------- 背景布局 ----------
+    struct HillSeed {
+        float offset;
+        float width;
+        float height;
+        float scrollFactor;   // 相机位移参与比例：越小越远（视觉移动越慢）
+        float z;
+        glm::vec4 color;
+    };
+
+    // 远山分两层：远层滚动最慢、颜色最淡；近层更快、更实（都排在云层之后）
+    const HillSeed HILL_SEEDS[] = {
+        { 0.0f, 620.0f, 210.0f, 0.90f, -3.95f, HILL_FAR },
+        { 520.0f, 470.0f, 150.0f, 0.90f, -3.95f, HILL_FAR },
+        { 1080.0f, 700.0f, 255.0f, 0.90f, -3.95f, HILL_FAR },
+        { 1620.0f, 460.0f, 140.0f, 0.90f, -3.95f, HILL_FAR },
+        { 220.0f, 460.0f, 170.0f, 0.78f, -3.60f, HILL_NEAR },
+        { 780.0f, 380.0f, 215.0f, 0.78f, -3.60f, HILL_NEAR },
+        { 1360.0f, 520.0f, 190.0f, 0.78f, -3.60f, HILL_NEAR },
+        { 1900.0f, 400.0f, 150.0f, 0.78f, -3.60f, HILL_NEAR },
+    };
 }
 
 // ---------- PlatformerCamera ----------
@@ -243,7 +340,7 @@ glm::vec3 PlatformerCamera::GetPosition() const
 glm::mat4 PlatformerCamera::GetViewMatrix() const
 {
     // 相机中心平移至原点（相机效果应体现在这里返回的视图矩阵中，随 UBO 上传）
-    return Translate(glm::vec3(-m_center.x, -m_center.y, 0.0f));
+    return Translate(m_shakeOffset) * Translate(glm::vec3(-m_center.x, -m_center.y, 0.0f));
 }
 
 glm::mat4 PlatformerCamera::GetProjectionMatrix() const
@@ -261,7 +358,7 @@ void PlatformerLayer::OnAttach()
 {
     CreateShaders();
     CreateMeshes();
-    BuildLevel();
+    BuildBackdrop();
     ResetLevel();
 
     RenderCommand::SetClearColor(glm::vec4(0.62f, 0.78f, 0.92f, 1.0f));
@@ -334,51 +431,18 @@ void PlatformerLayer::CreateMeshes()
     m_coinMesh = CreateCoinMesh();
     m_playerMesh = CreatePlayerMesh();
     m_flagMesh = CreateFlagMesh();
+    m_pennantMesh = CreatePennantMesh();
+    m_spikeMesh = CreateSpikeToothMesh();
+    m_hillMesh = CreateHillMesh();
 }
 
-void PlatformerLayer::BuildLevel()
+void PlatformerLayer::BuildBackdrop()
 {
-    m_platforms.clear();
-    m_coins.clear();
     m_clouds.clear();
-
-    // 左端挡墙（防止跑出关卡）；顶部略低于跳跃高度上限，避免玩家翻过去
-    AddBlock(-470.0f, -100.0f, 20.0f, 150.0f, false);
-
-    // 地面与缺口（掉进缺口即坠落重置）
-    AddGround(-125.0f, 375.0f, -400.0f);   // x ∈ [-500, 250]
-    AddGround(630.0f, 210.0f, -400.0f);    // x ∈ [420, 840]
-
-    // 阶梯上行（每级抬升 90~120，最高跳高约 164，需按住跳键）
-    AddBlock(930.0f, -280.0f, 75.0f, 60.0f, true);
-    AddBlock(1130.0f, -190.0f, 60.0f, 60.0f, true);
-    AddBlock(1330.0f, -90.0f, 55.0f, 60.0f, true);
-    AddBlock(1590.0f, -40.0f, 110.0f, 60.0f, true);
-    // 起伏段（含一块窄台，考验落点控制）
-    AddBlock(1880.0f, -140.0f, 70.0f, 60.0f, true);
-    AddBlock(2130.0f, -240.0f, 65.0f, 60.0f, true);
-    AddBlock(2350.0f, -240.0f, 45.0f, 60.0f, true);
-    AddBlock(2560.0f, -160.0f, 60.0f, 60.0f, true);
-    AddBlock(2760.0f, -80.0f, 55.0f, 60.0f, true);
-    // 终点大平台
-    AddBlock(3125.0f, -80.0f, 255.0f, 60.0f, true);
-
-    // 金币：沿跳跃弧线摆放
-    AddCoin(150.0f, -320.0f);
-    AddCoin(930.0f, -210.0f);
-    AddCoin(1130.0f, -120.0f);
-    AddCoin(1330.0f, -20.0f);
-    AddCoin(1590.0f, 30.0f);
-    AddCoin(1880.0f, -70.0f);
-    AddCoin(2130.0f, -170.0f);
-    AddCoin(2350.0f, -170.0f);
-    AddCoin(2760.0f, -10.0f);
-
-    m_flagPosition = glm::vec2(3150.0f, -80.0f);
-    m_spawnPoint = glm::vec2(100.0f, -400.0f + PLAYER_HALF_HEIGHT);
+    m_hills.clear();
 
     // 云层：视差背景，随机分布并错开 z
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < 14; ++i) {
         Cloud cloud;
         cloud.x = RandomFloat(0.0f, CLOUD_LOOP);
         cloud.y = RandomFloat(170.0f, 420.0f);
@@ -387,6 +451,102 @@ void PlatformerLayer::BuildLevel()
         cloud.color = glm::vec4(1.0f, 1.0f, 1.0f, RandomFloat(0.22f, 0.45f));
         m_clouds.push_back(cloud);
     }
+
+    // 远山：两层视差，循环铺开（底边沉在视野下方，像远处的谷地）
+    for (const HillSeed& seed : HILL_SEEDS) {
+        Hill hill;
+        hill.x = seed.offset;
+        hill.y = -540.0f;
+        hill.width = seed.width;
+        hill.height = seed.height;
+        hill.scrollFactor = seed.scrollFactor;
+        hill.z = seed.z;
+        hill.color = seed.color;
+        m_hills.push_back(hill);
+    }
+}
+
+void PlatformerLayer::BuildLevel()
+{
+    m_platforms.clear();
+    m_spikes.clear();
+    m_decors.clear();
+    m_checkpoints.clear();
+    m_coins.clear();
+
+    // ================== §A 起点营地（教学：跳上矮台阶） ==================
+    AddBlock(-470.0f, -100.0f, 20.0f, 150.0f, false);   // 左端挡墙（防止跑出关卡）
+    AddGround(-130.0f, 370.0f, GROUND_TOP);             // x ∈ [-500, 240]
+    AddBlock(170.0f, -340.0f, 55.0f, 45.0f, true);      // 矮台阶（抬高 60）
+    AddCoin(-260.0f, -330.0f);
+    AddCoin(170.0f, -270.0f);
+    m_spawnPoint = glm::vec2(-40.0f, GROUND_TOP + PLAYER_HALF_HEIGHT);
+
+    // ================== §B 尖刺与缺口（教学：尖刺会扎人；掉进缺口算坠落） ==================
+    // 缺口 [240, 430] 特意不设坑底：摔下去就是"掉下去了"，避免看不见的坑底机关骗人
+    AddGround(690.0f, 260.0f, GROUND_TOP);              // 地面 [430, 950]
+    AddSpikes(glm::vec2(575.0f, GROUND_TOP), 70.0f, Spike::Direction::Up);
+    AddSpikes(glm::vec2(785.0f, GROUND_TOP), 70.0f, Spike::Direction::Up);
+    AddBlock(890.0f, -320.0f, 45.0f, 50.0f, true);      // 台阶（继续向右）
+    AddCheckpoint(470.0f, GROUND_TOP);
+    AddCoin(470.0f, -330.0f);
+    AddCoin(680.0f, -320.0f);
+    AddCoin(890.0f, -250.0f);
+
+    // ================== §C 阶梯上行 + 伸缩尖刺平台 ==================
+    AddBlock(1030.0f, -310.0f, 60.0f, 60.0f, true);
+    AddBlock(1230.0f, -210.0f, 60.0f, 60.0f, true);
+    AddBlock(1470.0f, -140.0f, 120.0f, 60.0f, true);    // 平台正中埋着伸缩尖刺：看准缩回再跳过去
+    AddCyclicSpikes(glm::vec2(1470.0f, -140.0f), 90.0f, Spike::Direction::Up, 46.0f, 2.6f, 0.0f);
+    AddBlock(1740.0f, -230.0f, 70.0f, 60.0f, true);
+    AddCheckpoint(1700.0f, -230.0f);
+    AddCoin(1030.0f, -240.0f);
+    AddCoin(1230.0f, -140.0f);
+    AddCoin(1770.0f, -160.0f);
+
+    // ================== §D 深渊 + 水平移动平台 ==================
+    // 深渊 [1810, 2380] 不设坑底：错过移动平台就是坠落（和地面尖刺区分开）
+    AddMovingPlatform(glm::vec2(1880.0f, -268.0f), glm::vec2(2300.0f, -268.0f),
+                      glm::vec2(70.0f, 18.0f), 140.0f, 0.45f);   // 顶面 -250
+    AddBlock(2560.0f, -280.0f, 90.0f, 60.0f, true);     // 对岸落脚平台
+    AddCheckpoint(2510.0f, -280.0f);
+    AddCoin(2090.0f, -170.0f);      // 深渊正上方：得在移动平台上起跳才拿得到
+    AddCoin(2560.0f, -200.0f);
+
+    // ================== §E 垂直升降 + 壁刺走廊 ==================
+    // 升降台顶面在 -340（低）与 -150（高）之间往返；右侧立柱贴着朝左的尖刺。
+    // 尖刺判定带（玩家中心 y ∈ [-315, -205]）只覆盖升降台中段：
+    // 上车、到顶、跳到立柱顶都安全，只有"升到一半还站在升降台右侧"才会撞刺
+    AddMovingPlatform(glm::vec2(2740.0f, -356.0f), glm::vec2(2740.0f, -166.0f),
+                      glm::vec2(80.0f, 16.0f), 95.0f, 0.45f);
+    AddBlock(2880.0f, -150.0f, 40.0f, 85.0f, false);    // 立柱（顶面与升降台高位齐平，可直接跨过去）
+    AddSpikes(glm::vec2(2840.0f, -260.0f), 70.0f, Spike::Direction::Left, 100.0f);
+    AddBlock(3050.0f, -150.0f, 80.0f, 60.0f, true);
+    AddCheckpoint(3000.0f, -150.0f);
+    AddCoin(2650.0f, -122.0f);      // 升降台左侧：正好提示"往这边躲"
+    AddCoin(3080.0f, -80.0f);
+
+    // ================== §F 天花板闸门 + 终局跳台 ==================
+    AddBlock(3480.0f, -150.0f, 210.0f, 60.0f, true);    // 闸门走廊 [3270, 3690]
+    AddDecor(3370.0f, -150.0f, 24.0f, 100.0f, SUPPORT_COLOR);
+    AddDecor(3650.0f, -150.0f, 24.0f, 100.0f, SUPPORT_COLOR);
+    AddBlock(3510.0f, 10.0f, 150.0f, 30.0f, false);     // 闸门顶盖 y ∈ [-50, 10]
+    AddCyclicSpikes(glm::vec2(3510.0f, -50.0f), 250.0f, Spike::Direction::Down, 90.0f, 3.0f, 0.0f);
+    AddSpikes(glm::vec2(3510.0f, 10.0f), 290.0f, Spike::Direction::Up, 40.0f);  // 顶盖上也有刺：堵住翻越近路
+    // 走廊尽头的缺口 [3690, 3840] 同样不设坑底：摔下去算坠落
+    AddBlock(3930.0f, -190.0f, 90.0f, 60.0f, true);
+    AddCheckpoint(3900.0f, -190.0f);
+    AddBlock(4180.0f, -150.0f, 45.0f, 40.0f, true);     // 窄台两连跳
+    AddBlock(4390.0f, -100.0f, 40.0f, 40.0f, true);
+    AddBlock(4720.0f, -100.0f, 200.0f, 60.0f, true);    // 终点大平台
+    AddBlock(4980.0f, -100.0f, 20.0f, 150.0f, false);   // 右端挡墙
+    m_flagPosition = glm::vec2(4780.0f, -100.0f);
+    AddCoin(3510.0f, -120.0f);      // 闸门正下方：贪这一枚得卡准时机
+    AddCoin(4180.0f, -80.0f);
+    AddCoin(4390.0f, -30.0f);
+    AddCoin(4700.0f, -20.0f);
+
+    m_respawnPoint = m_spawnPoint;
 }
 
 void PlatformerLayer::AddGround(float centerX, float halfWidth, float top)
@@ -410,6 +570,66 @@ void PlatformerLayer::AddBlock(float centerX, float top, float halfWidth, float 
     m_platforms.push_back(platform);
 }
 
+void PlatformerLayer::AddMovingPlatform(const glm::vec2& from, const glm::vec2& to, const glm::vec2& halfSize,
+                                        float speed, float pauseTime, float startT)
+{
+    Platform platform;
+    platform.halfSize = halfSize;
+    platform.bodyColor = MOVER_BODY;
+    platform.topColor = MOVER_TOP;
+    platform.pathStart = from;
+    platform.pathEnd = to;
+    platform.speed = speed;
+    platform.pauseTime = pauseTime;
+    platform.t = glm::clamp(startT, 0.0f, 1.0f);
+    platform.position = from + (to - from) * platform.t;
+    m_platforms.push_back(platform);
+}
+
+void PlatformerLayer::AddDecor(float centerX, float centerY, float halfWidth, float halfHeight,
+                               const glm::vec4& color)
+{
+    Decor decor;
+    decor.position = glm::vec2(centerX, centerY);
+    decor.halfSize = glm::vec2(halfWidth, halfHeight);
+    decor.color = color;
+    m_decors.push_back(decor);
+}
+
+void PlatformerLayer::AddSpikes(const glm::vec2& basePosition, float width, Spike::Direction direction,
+                                float height)
+{
+    Spike spike;
+    spike.position = basePosition;
+    spike.width = width;
+    spike.height = height;
+    spike.direction = direction;
+    spike.extend = 1.0f;
+    m_spikes.push_back(spike);
+}
+
+void PlatformerLayer::AddCyclicSpikes(const glm::vec2& basePosition, float width, Spike::Direction direction,
+                                      float height, float period, float startPhase)
+{
+    Spike spike;
+    spike.position = basePosition;
+    spike.width = width;
+    spike.height = height;
+    spike.direction = direction;
+    spike.cyclic = true;
+    spike.period = period;
+    spike.phase = startPhase - std::floor(startPhase);
+    spike.extend = SpikeExtendAt(spike.phase);
+    m_spikes.push_back(spike);
+}
+
+void PlatformerLayer::AddCheckpoint(float x, float surfaceY)
+{
+    Checkpoint checkpoint;
+    checkpoint.position = glm::vec2(x, surfaceY);
+    m_checkpoints.push_back(checkpoint);
+}
+
 void PlatformerLayer::AddCoin(float x, float y)
 {
     Coin coin;
@@ -420,12 +640,16 @@ void PlatformerLayer::AddCoin(float x, float y)
 
 void PlatformerLayer::ResetLevel()
 {
+    // 整关重建：金币、存档点、移动平台相位、伸缩尖刺相位全部回到初始状态
+    BuildLevel();
+
     m_playerPosition = m_spawnPoint;
     m_velocity = glm::vec2(0.0f, 0.0f);
     m_grounded = false;
     m_wasGrounded = false;
     m_coyoteTimer = 0.0f;
     m_jumpBufferTimer = 0.0f;
+    m_jumpDownPrev = false;
     m_jumpHeld = false;
     m_jumpHoldTime = 0.0f;
     m_roseInAir = false;
@@ -434,17 +658,61 @@ void PlatformerLayer::ResetLevel()
     m_facing = 1;
     m_squash = 1.0f;
     m_landSpeed = 0.0f;
+    m_groundPlatformIndex = -1;
+    m_inputLockTimer = 0.0f;
 
-    for (auto& coin : m_coins) {
-        coin.collected = false;
-    }
     m_coinsCollected = 0;
     m_time = 0.0f;
+    m_deaths = 0;
+    m_shake = 0.0f;
+    m_deathFlash = 0.0f;
+    m_deathCause = nullptr;
+    m_deathCauseTimer = 0.0f;
     m_state = GameState::Playing;
     m_puffs.clear();
 
     // 相机直接就位，避免从上一个位置平滑拉过来
     m_camera.SetCenter(glm::vec2(CameraTargetX(m_spawnPoint.x), 0.0f));
+    m_camera.SetShakeOffset(glm::vec3(0.0f, 0.0f, 0.0f));
+}
+
+void PlatformerLayer::RespawnAtCheckpoint()
+{
+    m_playerPosition = m_respawnPoint;
+    m_velocity = glm::vec2(0.0f, 0.0f);
+    m_grounded = false;
+    m_groundPlatformIndex = -1;
+    m_wasGrounded = false;
+    m_coyoteTimer = 0.0f;
+    m_jumpBufferTimer = 0.0f;
+    m_jumpHeld = false;
+    m_jumpHoldTime = 0.0f;
+    m_roseInAir = false;
+    m_apexActive = false;
+    m_fastFalling = false;
+    m_squash = 1.0f;
+    m_inputLockTimer = 0.22f;   // 复活瞬间锁一下输入，避免惯性误操作
+
+    // 相机直接就位（长关卡里不能从死亡点慢慢拉过来）
+    m_camera.SetCenter(glm::vec2(CameraTargetX(m_playerPosition.x), 0.0f));
+}
+
+void PlatformerLayer::KillPlayer(const char* cause, const glm::vec2& effectPosition)
+{
+    if (m_state != GameState::Playing) {
+        return;
+    }
+
+    ++m_deaths;
+    m_shake = 26.0f;
+    m_deathFlash = 1.0f;
+    m_deathCause = cause;
+    m_deathCauseTimer = 1.8f;
+
+    SpawnPuff(effectPosition, 12, DEATH_SPARK, 250.0f, 15.0f, 300.0f);
+    SpawnPuff(effectPosition, 6, DUST, 130.0f, 12.0f, 420.0f);
+
+    RespawnAtCheckpoint();
 }
 
 float PlatformerLayer::CameraTargetX(float playerX) const
@@ -462,26 +730,76 @@ float PlatformerLayer::CameraTargetX(float playerX) const
     return glm::clamp(playerX + static_cast<float>(m_facing) * CAMERA_LOOKAHEAD, minX, maxX);
 }
 
+void PlatformerLayer::UpdatePlatforms(float deltaTime)
+{
+    for (auto& platform : m_platforms) {
+        if (!platform.IsMoving() || deltaTime <= 0.0f) {
+            continue;
+        }
+
+        const glm::vec2 previous = platform.position;
+        if (platform.pauseTimer > 0.0f) {
+            platform.pauseTimer = std::max(0.0f, platform.pauseTimer - deltaTime);
+        } else {
+            const float pathLength = glm::length(platform.pathEnd - platform.pathStart);
+            if (pathLength > 0.0001f) {
+                platform.t += platform.speed / pathLength * deltaTime * static_cast<float>(platform.pathDir);
+                if (platform.t >= 1.0f) {
+                    platform.t = 1.0f;
+                    platform.pathDir = -1;
+                    platform.pauseTimer = platform.pauseTime;
+                } else if (platform.t <= 0.0f) {
+                    platform.t = 0.0f;
+                    platform.pathDir = 1;
+                    platform.pauseTimer = platform.pauseTime;
+                }
+                platform.position = platform.pathStart + (platform.pathEnd - platform.pathStart) * platform.t;
+            }
+        }
+
+        // 记录本帧实际位移速度：载人、轨道提示都靠它
+        platform.velocity = (platform.position - previous) / deltaTime;
+    }
+}
+
+void PlatformerLayer::UpdateSpikes(float deltaTime)
+{
+    for (auto& spike : m_spikes) {
+        if (!spike.cyclic) {
+            spike.extend = 1.0f;
+            continue;
+        }
+        spike.phase = spike.phase + deltaTime / std::max(spike.period, 0.05f);
+        spike.phase -= std::floor(spike.phase);
+        spike.extend = SpikeExtendAt(spike.phase);
+    }
+}
+
 void PlatformerLayer::UpdatePlayer(float deltaTime)
 {
     const ImGuiIO& io = ImGui::GetIO();
     // 只有"文本输入激活"时才屏蔽游戏键盘输入；仅窗口聚焦/键盘导航不算，
     // 否则打开 F4 面板后角色会不听使唤（WantCaptureKeyboard 可能为 true）
-    const bool acceptInput = !io.WantTextInput && m_state == GameState::Playing;
+    if (m_inputLockTimer > 0.0f) {
+        m_inputLockTimer = std::max(0.0f, m_inputLockTimer - deltaTime);
+    }
+    const bool acceptInput = !io.WantTextInput && m_state == GameState::Playing && m_inputLockTimer <= 0.0f;
 
     const bool moveLeft = acceptInput && (Input::IsKeyPressed(Key::A) || Input::IsKeyPressed(Key::Left));
     const bool moveRight = acceptInput && (Input::IsKeyPressed(Key::D) || Input::IsKeyPressed(Key::Right));
-    const bool jumpDown = acceptInput &&
-        (Input::IsKeyPressed(Key::Space) || Input::IsKeyPressed(Key::W) || Input::IsKeyPressed(Key::Up));
+    const bool jumpDownRaw = Input::IsKeyPressed(Key::Space) || Input::IsKeyPressed(Key::W) ||
+                             Input::IsKeyPressed(Key::Up);
+    const bool jumpDown = acceptInput && jumpDownRaw;
     const bool fastFallDown = acceptInput && (Input::IsKeyPressed(Key::S) || Input::IsKeyPressed(Key::Down));
 
     // ---- 跳跃缓冲：新按下时刷新，落地前提前按下也算数 ----
+    // 记录原始按键状态（而非过滤后的），这样复活时如果还按着跳跃键不会立刻又起跳
     if (jumpDown && !m_jumpDownPrev) {
         m_jumpBufferTimer = m_tuning.jumpBufferTime;
     } else {
         m_jumpBufferTimer = std::max(0.0f, m_jumpBufferTimer - deltaTime);
     }
-    m_jumpDownPrev = jumpDown;
+    m_jumpDownPrev = jumpDownRaw;
 
     // ---- 起跳（地面或 Coyote 宽限期内）----
     if (m_jumpBufferTimer > 0.0f && (m_grounded || m_coyoteTimer > 0.0f)) {
@@ -556,9 +874,17 @@ void PlatformerLayer::UpdatePlayer(float deltaTime)
         m_roseInAir = true;   // 记录明显上升过（获得顶点滞空资格）
     }
 
-    // ---- 移动与碰撞（m_grounded 由碰撞解算负责重置）----
+    // ---- 载人：站在移动平台上时，把平台本帧位移叠加进自己的移动 ----
+    glm::vec2 carry(0.0f, 0.0f);
+    if (m_grounded && m_groundPlatformIndex >= 0 &&
+        m_groundPlatformIndex < static_cast<int>(m_platforms.size())) {
+        carry = m_platforms[static_cast<size_t>(m_groundPlatformIndex)].velocity * deltaTime;
+    }
+
+    // ---- 移动与碰撞（m_grounded / m_groundPlatformIndex 由碰撞解算重置）----
     m_grounded = false;
-    MoveAndCollide(glm::vec2(m_velocity.x * deltaTime, m_velocity.y * deltaTime));
+    m_groundPlatformIndex = -1;
+    MoveAndCollide(glm::vec2(m_velocity.x * deltaTime, m_velocity.y * deltaTime) + carry);
 
     // ---- 落地 / 离地处理 ----
     if (m_grounded) {
@@ -577,18 +903,36 @@ void PlatformerLayer::UpdatePlayer(float deltaTime)
     m_wasGrounded = m_grounded;
     m_landSpeed = 0.0f;
 
-    // ---- 世界边界与坠落重置 ----
+    // ---- 世界边界与坠落 ----
     m_playerPosition.x = glm::clamp(m_playerPosition.x,
                                     WORLD_MIN_X + PLAYER_HALF_WIDTH + 4.0f,
                                     WORLD_MAX_X - PLAYER_HALF_WIDTH - 4.0f);
     if (m_playerPosition.y < WORLD_KILL_Y) {
-        ++m_falls;
-        ResetLevel();
+        KillPlayer("掉下去了", m_playerPosition);
         return;
     }
 
     if (m_state != GameState::Playing) {
         return;
+    }
+
+    // ---- 尖刺判定 ----
+    if (CheckHazards()) {
+        return;
+    }
+
+    // ---- 存档点 ----
+    for (auto& checkpoint : m_checkpoints) {
+        if (checkpoint.activated) {
+            continue;
+        }
+        if (std::abs(checkpoint.position.x - m_playerPosition.x) < PLAYER_HALF_WIDTH + 26.0f &&
+            std::abs(checkpoint.position.y - m_playerPosition.y) < PLAYER_HALF_HEIGHT + 34.0f) {
+            checkpoint.activated = true;
+            m_respawnPoint = glm::vec2(checkpoint.position.x, checkpoint.position.y + PLAYER_HALF_HEIGHT + 2.0f);
+            SpawnPuff(checkpoint.position + glm::vec2(0.0f, 44.0f), 12,
+                      glm::vec4(0.45f, 1.0f, 0.62f, 1.0f), 170.0f, 13.0f, -40.0f);
+        }
     }
 
     // ---- 金币收集 ----
@@ -642,24 +986,100 @@ void PlatformerLayer::MoveAndCollide(const glm::vec2& delta)
             }
         }
 
-        // Y 轴：向下落在顶面（置 grounded），向上撞到底面
+        // Y 轴：按"最小推出距离"决定落在顶面还是撞到底面。
+        // 不能只看位移方向：上行升降台载人时玩家的净位移是向上的，
+        // 会被误判成头撞底面而塞到平台下方（表现为"平台一向上移动人就掉下去"）
         if (stepDelta.y != 0.0f) {
             m_playerPosition.y += stepDelta.y;
-            for (const auto& platform : m_platforms) {
+            for (size_t i = 0; i < m_platforms.size(); ++i) {
+                const Platform& platform = m_platforms[i];
                 if (!OverlapsPlatform(platform)) {
                     continue;
                 }
-                if (stepDelta.y > 0.0f) {
-                    m_playerPosition.y = platform.position.y - platform.halfSize.y - PLAYER_HALF_HEIGHT;
-                } else {
-                    m_playerPosition.y = platform.position.y + platform.halfSize.y + PLAYER_HALF_HEIGHT;
+
+                const float platformTop = platform.position.y + platform.halfSize.y;
+                const float platformBottom = platform.position.y - platform.halfSize.y;
+                const float pushUp = platformTop - (m_playerPosition.y - PLAYER_HALF_HEIGHT);
+                const float pushDown = (m_playerPosition.y + PLAYER_HALF_HEIGHT) - platformBottom;
+
+                if (pushUp <= pushDown) {
+                    // 从上方进入：站到顶面（移动平台向上顶人时也走这里）
+                    m_playerPosition.y = platformTop + PLAYER_HALF_HEIGHT;
                     m_landSpeed = std::max(m_landSpeed, -m_velocity.y);
                     m_grounded = true;
+                    m_groundPlatformIndex = static_cast<int>(i);
+                } else {
+                    // 从下方进入：撞头
+                    m_playerPosition.y = platformBottom - PLAYER_HALF_HEIGHT;
                 }
                 m_velocity.y = 0.0f;
             }
         }
     }
+}
+
+bool PlatformerLayer::SpikeHitbox(const Spike& spike, glm::vec2& center, glm::vec2& halfSize) const
+{
+    if (spike.extend < m_tuning.spikeDeadlyExtend) {
+        return false;   // 缩回 / 预警期不参与判定（预警露尖是纯粹的安全提示）
+    }
+
+    const float reach = spike.height * spike.extend;
+    const float alongHalfWidth = spike.width * 0.5f * m_tuning.spikeHitboxShrink;   // 齿尖细，横向放宽
+    const float alongCenter = reach * 0.58f;   // 沿突出方向的判定中心（跳过靠近基座的一段）
+    const float alongHalf = reach * 0.37f;
+
+    switch (spike.direction) {
+        case Spike::Direction::Up:
+            center = spike.position + glm::vec2(0.0f, alongCenter);
+            halfSize = glm::vec2(alongHalfWidth, alongHalf);
+            break;
+        case Spike::Direction::Down:
+            center = spike.position + glm::vec2(0.0f, -alongCenter);
+            halfSize = glm::vec2(alongHalfWidth, alongHalf);
+            break;
+        case Spike::Direction::Left:
+            center = spike.position + glm::vec2(-alongCenter, 0.0f);
+            halfSize = glm::vec2(alongHalf, alongHalfWidth);
+            break;
+        case Spike::Direction::Right:
+            center = spike.position + glm::vec2(alongCenter, 0.0f);
+            halfSize = glm::vec2(alongHalf, alongHalfWidth);
+            break;
+    }
+    return true;
+}
+
+bool PlatformerLayer::CheckHazards()
+{
+    for (const auto& spike : m_spikes) {
+        glm::vec2 center(0.0f, 0.0f);
+        glm::vec2 halfSize(0.0f, 0.0f);
+        if (!SpikeHitbox(spike, center, halfSize)) {
+            continue;
+        }
+        if (std::abs(m_playerPosition.x - center.x) < PLAYER_HALF_WIDTH + halfSize.x &&
+            std::abs(m_playerPosition.y - center.y) < PLAYER_HALF_HEIGHT + halfSize.y) {
+            KillPlayer("被尖刺扎到", (m_playerPosition + center) * 0.5f);
+            return true;
+        }
+    }
+    return false;
+}
+
+float PlatformerLayer::SpikeRotation(Spike::Direction direction)
+{
+    switch (direction) {
+        case Spike::Direction::Up:
+            return 0.0f;
+        case Spike::Direction::Down:
+            return PI;                 // 单位齿默认指向 +Y，旋转 π 后朝下
+        case Spike::Direction::Left:
+            return PI * 0.5f;          // 朝 -X
+        case Spike::Direction::Right:
+            return -PI * 0.5f;         // 朝 +X
+    }
+    return 0.0f;
 }
 
 void PlatformerLayer::SpawnPuff(const glm::vec2& position, int count, const glm::vec4& color,
@@ -719,10 +1139,25 @@ void PlatformerLayer::OnUpdate()
     if (m_state == GameState::Playing) {
         m_time += deltaTime;
     }
+
+    UpdatePlatforms(deltaTime);
+    UpdateSpikes(deltaTime);
     UpdatePlayer(deltaTime);
 
     // 挤压拉伸回弹（落地压扁 / 起跳拉伸后恢复）
     m_squash += (1.0f - m_squash) * std::min(1.0f, deltaTime * 11.0f);
+
+    // 震屏与死亡闪红衰减
+    m_shake = std::max(0.0f, m_shake - deltaTime * 90.0f);
+    m_deathFlash = std::max(0.0f, m_deathFlash - deltaTime * 2.6f);
+    m_deathCauseTimer = std::max(0.0f, m_deathCauseTimer - deltaTime);
+
+    glm::vec3 shakeOffset(0.0f, 0.0f, 0.0f);
+    if (m_shake > 0.01f) {
+        shakeOffset = glm::vec3(RandomFloat(-m_shake, m_shake) * 0.5f,
+                                RandomFloat(-m_shake, m_shake) * 0.5f, 0.0f);
+    }
+    m_camera.SetShakeOffset(shakeOffset);
 
     UpdateParticles(deltaTime);
     UpdateCamera(deltaTime);
@@ -753,11 +1188,31 @@ void PlatformerLayer::RenderWorld()
     const float halfWidth = VIEW_HALF_HEIGHT * aspect;
 
     const glm::vec4 white(1.0f, 1.0f, 1.0f, 1.0f);
+    const auto visible = [&](float x, float margin) {
+        return std::abs(x - cameraCenter.x) <= halfWidth + margin;
+    };
 
     // ---- 天空：全屏渐变，跟随相机 ----
     m_shader->SetFloat("u_Falloff", 0.0f);
     DrawMesh(m_skyMesh, Translate(glm::vec3(cameraCenter.x, 0.0f, -9.0f)) *
                             Scale(glm::vec3(halfWidth * 2.0f, VIEW_HALF_HEIGHT * 2.0f, 1.0f)), white);
+
+    // ---- 远山：两层视差，图案循环避免出界 ----
+    for (const auto& hill : m_hills) {
+        float offsetX = std::fmod(hill.x - cameraCenter.x * hill.scrollFactor, HILL_LOOP);
+        if (offsetX < -HILL_LOOP * 0.5f) {
+            offsetX += HILL_LOOP;
+        }
+        if (offsetX > HILL_LOOP * 0.5f) {
+            offsetX -= HILL_LOOP;
+        }
+        const float x = cameraCenter.x + offsetX;
+        if (!visible(x, hill.width)) {
+            continue;
+        }
+        DrawMesh(m_hillMesh, Translate(glm::vec3(x, hill.y, hill.z)) *
+                                 Scale(glm::vec3(hill.width, hill.height, 1.0f)), hill.color);
+    }
 
     // ---- 云层：视差滚动（相机移动 1 单位、云层移动 0.7 单位），图案循环避免出界 ----
     m_shader->SetFloat("u_Falloff", 1.0f);
@@ -771,6 +1226,9 @@ void PlatformerLayer::RenderWorld()
             offsetX -= CLOUD_LOOP;
         }
         const float x = cameraCenter.x + offsetX;
+        if (!visible(x, cloud.scale * 1.5f)) {
+            continue;
+        }
 
         // 一朵云由三个重叠光晕（大-中-小、错位）拼出蓬松轮廓
         DrawMesh(m_glowMesh, Translate(glm::vec3(x - cloud.scale * 0.42f, cloud.y + 6.0f, cloud.z)) *
@@ -782,13 +1240,108 @@ void PlatformerLayer::RenderWorld()
     }
     m_shader->SetFloat("u_Falloff", 0.0f);
 
+    // ---- 背景装饰（闸门支柱等，无碰撞，画在平台之后）----
+    for (const auto& decor : m_decors) {
+        if (!visible(decor.position.x, decor.halfSize.x)) {
+            continue;
+        }
+        DrawMesh(m_solidMesh, Translate(glm::vec3(decor.position, -0.55f)) *
+                                  Scale(glm::vec3(decor.halfSize * 2.0f, 1.0f)), decor.color);
+    }
+
     // ---- 平台：主体 + 顶面高光条（z 错开，避免同 z 重叠被深度测试剔除）----
     for (const auto& platform : m_platforms) {
+        if (!visible(platform.position.x, platform.halfSize.x + 96.0f)) {
+            continue;
+        }
+
+        // 移动平台先画一条半透明的往返轨道，方便预判落点
+        if (platform.IsMoving()) {
+            const glm::vec2 trackCenter = (platform.pathStart + platform.pathEnd) * 0.5f;
+            const glm::vec2 trackSize = glm::abs(platform.pathEnd - platform.pathStart);
+            DrawMesh(m_solidMesh, Translate(glm::vec3(trackCenter, -0.66f)) *
+                                      Scale(glm::vec3(trackSize.x + 8.0f, trackSize.y + 8.0f, 1.0f)),
+                     glm::vec4(1.0f, 1.0f, 1.0f, 0.14f));
+        }
+
         DrawMesh(m_solidMesh, Translate(glm::vec3(platform.position, -0.4f)) *
                               Scale(glm::vec3(platform.halfSize * 2.0f, 1.0f)), platform.bodyColor);
         DrawMesh(m_solidMesh,
                  Translate(glm::vec3(platform.position.x, platform.position.y + platform.halfSize.y - 5.0f, -0.38f)) *
                      Scale(glm::vec3(platform.halfSize.x * 2.0f, 10.0f, 1.0f)), platform.topColor);
+
+        // 移动平台补三颗铆钉：一眼区分"会动的"
+        if (platform.IsMoving()) {
+            for (int i = -1; i <= 1; ++i) {
+                DrawMesh(m_solidMesh,
+                         Translate(glm::vec3(platform.position.x + platform.halfSize.x * 0.55f * static_cast<float>(i),
+                                             platform.position.y - platform.halfSize.y * 0.3f, -0.35f)) *
+                             Scale(glm::vec3(9.0f, 9.0f, 1.0f)),
+                         MOVER_RIVET);
+            }
+        }
+    }
+
+    // ---- 尖刺：基座 + 逐齿绘制（齿宽恒定，方向用旋转表达；缩回时只留基座）----
+    for (const auto& spike : m_spikes) {
+        if (!visible(spike.position.x, spike.width + 80.0f)) {
+            continue;
+        }
+
+        const float rotation = SpikeRotation(spike.direction);
+        const glm::mat4 baseTransform =
+            Translate(glm::vec3(spike.position, -0.36f)) * RotateZ(rotation);
+
+        // 基座：即使完全缩回也画一条暗色板，提示"这里埋着机关"（公平起见必须可见）
+        DrawMesh(m_solidMesh, baseTransform * Translate(glm::vec3(0.0f, 3.0f, 0.0f)) *
+                                  Scale(glm::vec3(spike.width, 6.0f, 1.0f)), SPIKE_BASE);
+
+        const float teethHeight = spike.height * spike.extend;
+        if (teethHeight < 1.0f) {
+            continue;
+        }
+
+        // 预警阶段（尚未致命）：加一圈琥珀色脉冲光晕，给玩家反应时间
+        if (spike.cyclic && spike.extend < m_tuning.spikeDeadlyExtend) {
+            const float pulse = 0.30f + 0.22f * std::sin(m_time * 16.0f);
+            m_shader->SetFloat("u_Falloff", 1.0f);
+            DrawMesh(m_glowMesh, baseTransform * Translate(glm::vec3(0.0f, spike.height * 0.55f, 0.04f)) *
+                                     Scale(glm::vec3(spike.width * 1.15f, spike.height * 1.5f, 1.0f)),
+                     glm::vec4(1.0f, 0.72f, 0.28f, pulse));
+            m_shader->SetFloat("u_Falloff", 0.0f);
+        }
+
+        const int teeth = std::max(1, static_cast<int>(std::floor(spike.width / 34.0f)));
+        const float toothWidth = spike.width / static_cast<float>(teeth);
+        for (int i = 0; i < teeth; ++i) {
+            const float localX = -spike.width * 0.5f + toothWidth * (static_cast<float>(i) + 0.5f);
+            DrawMesh(m_spikeMesh, baseTransform * Translate(glm::vec3(localX, 0.0f, 0.0f)) *
+                                      Scale(glm::vec3(toothWidth, teethHeight, 1.0f)),
+                     white);
+        }
+    }
+
+    // ---- 存档点：未激活为灰、激活后变绿并带光晕 ----
+    for (const auto& checkpoint : m_checkpoints) {
+        if (!visible(checkpoint.position.x, 80.0f)) {
+            continue;
+        }
+        const glm::vec4 poleColor = checkpoint.activated ? CHECKPOINT_ON : CHECKPOINT_OFF;
+
+        DrawMesh(m_solidMesh, Translate(glm::vec3(checkpoint.position.x, checkpoint.position.y + 3.0f, -0.32f)) *
+                                  Scale(glm::vec3(30.0f, 6.0f, 1.0f)), glm::vec4(0.32f, 0.35f, 0.42f, 1.0f));
+        DrawMesh(m_solidMesh, Translate(glm::vec3(checkpoint.position.x, checkpoint.position.y + 25.0f, -0.32f)) *
+                                  Scale(glm::vec3(6.0f, 50.0f, 1.0f)), poleColor);
+        DrawMesh(m_pennantMesh, Translate(glm::vec3(checkpoint.position.x + 2.0f, checkpoint.position.y + 34.0f, -0.31f)) *
+                                 Scale(glm::vec3(20.0f, 16.0f, 1.0f)), poleColor);
+
+        if (checkpoint.activated) {
+            m_shader->SetFloat("u_Falloff", 1.0f);
+            DrawMesh(m_glowMesh, Translate(glm::vec3(checkpoint.position.x, checkpoint.position.y + 40.0f, -0.30f)) *
+                                     Scale(glm::vec3(46.0f, 52.0f, 1.0f)),
+                     glm::vec4(0.45f, 1.0f, 0.62f, 0.30f));
+            m_shader->SetFloat("u_Falloff", 0.0f);
+        }
     }
 
     // ---- 终点旗 ----
@@ -802,7 +1355,7 @@ void PlatformerLayer::RenderWorld()
 
     // ---- 金币：绕 Y 轴旋转感（横向压缩模拟）+ 光晕 ----
     for (const auto& coin : m_coins) {
-        if (coin.collected) {
+        if (coin.collected || !visible(coin.position.x, 80.0f)) {
             continue;
         }
         const float spin = 0.28f + 0.72f * std::abs(std::cos(m_time * 3.2f + coin.phase));
@@ -837,6 +1390,44 @@ void PlatformerLayer::RenderWorld()
                  glm::vec4(puff.color.x, puff.color.y, puff.color.z, alpha));
     }
     m_shader->SetFloat("u_Falloff", 0.0f);
+
+    // ---- 死亡闪红（整屏覆盖，随时间淡出）----
+    if (m_deathFlash > 0.001f) {
+        DrawMesh(m_solidMesh, Translate(glm::vec3(cameraCenter.x, 0.0f, 0.5f)) *
+                                  Scale(glm::vec3(halfWidth * 2.0f, VIEW_HALF_HEIGHT * 2.0f, 1.0f)),
+                 glm::vec4(0.92f, 0.16f, 0.22f, m_deathFlash * 0.32f));
+    }
+
+    // ---- 调试：判定盒可视化 ----
+    if (m_showDebug && m_showHitboxes) {
+        RenderHitboxes();
+    }
+}
+
+void PlatformerLayer::RenderHitboxes()
+{
+    // 平台判定框
+    for (const auto& platform : m_platforms) {
+        DrawMesh(m_solidMesh, Translate(glm::vec3(platform.position, 0.30f)) *
+                                  Scale(glm::vec3(platform.halfSize * 2.0f, 1.0f)),
+                 glm::vec4(0.30f, 1.0f, 0.55f, 0.12f));
+    }
+
+    // 尖刺判定盒（黄 = 预警期不致命，红 = 当前致命）
+    for (const auto& spike : m_spikes) {
+        glm::vec2 center(0.0f, 0.0f);
+        glm::vec2 halfSize(0.0f, 0.0f);
+        if (!SpikeHitbox(spike, center, halfSize)) {
+            continue;
+        }
+        DrawMesh(m_solidMesh, Translate(glm::vec3(center, 0.32f)) * Scale(glm::vec3(halfSize * 2.0f, 1.0f)),
+                 glm::vec4(1.0f, 0.28f, 0.30f, 0.24f));
+    }
+
+    // 玩家判定框
+    DrawMesh(m_solidMesh, Translate(glm::vec3(m_playerPosition, 0.34f)) *
+                              Scale(glm::vec3(PLAYER_WIDTH, PLAYER_HEIGHT, 1.0f)),
+             glm::vec4(1.0f, 1.0f, 1.0f, 0.18f));
 }
 
 void PlatformerLayer::RenderHud()
@@ -848,15 +1439,25 @@ void PlatformerLayer::RenderHud()
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                          ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+        int activatedCheckpoints = 0;
+        for (const auto& checkpoint : m_checkpoints) {
+            activatedCheckpoints += checkpoint.activated ? 1 : 0;
+        }
+
         ImGui::Text("平台跳跃");
-        ImGui::Text("金币 %d / %d    用时 %.1f s    坠落 %d", m_coinsCollected,
-                    static_cast<int>(m_coins.size()), m_time, m_falls);
+        ImGui::Text("金币 %d / %d    用时 %.1f s    死亡 %d    存档点 %d/%d", m_coinsCollected,
+                    static_cast<int>(m_coins.size()), m_time, m_deaths,
+                    activatedCheckpoints, static_cast<int>(m_checkpoints.size()));
+        if (m_deathCauseTimer > 0.0f && m_deathCause != nullptr) {
+            ImGui::TextColored(ImVec4(1.0f, 0.48f, 0.48f, 1.0f), "%s！已回到最近的存档点", m_deathCause);
+        }
         ImGui::TextDisabled("A/D 或 ←/→ 移动    空格/W/↑ 跳跃（按住跳更高，轻点跳得低）");
         ImGui::TextDisabled("↓/S 快速下坠    R 重开    F4 手感调参    Esc 退出");
+        ImGui::TextDisabled("小心尖刺：灰色基座下可能藏着伸缩尖刺（露尖时安全，完全弹出才致命）");
         if (m_state == GameState::Victory) {
             ImGui::Separator();
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "通关！用时 %.2f 秒，金币 %d/%d",
-                               m_time, m_coinsCollected, static_cast<int>(m_coins.size()));
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "通关！用时 %.2f 秒，金币 %d/%d，死亡 %d 次",
+                               m_time, m_coinsCollected, static_cast<int>(m_coins.size()), m_deaths);
             ImGui::TextDisabled("按 R 再来一局");
         }
     }
@@ -869,7 +1470,7 @@ void PlatformerLayer::RenderHud()
 
     const ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(14.0f, 208.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(350.0f, 470.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(360.0f, 580.0f), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Platformer 手感调参 (F4)")) {
         const float lightJump = m_tuning.jumpVelocity * m_tuning.jumpCutScale;
         ImGui::Text("理论跳高：轻点 %.0f px  /  满按 %.0f px",
@@ -881,8 +1482,12 @@ void PlatformerLayer::RenderHud()
                     m_grounded ? "地面" : "空中",
                     m_apexActive ? "顶点滞空" : "—",
                     m_fastFalling ? "快速下坠" : "—");
+        const bool onMover = m_grounded && m_groundPlatformIndex >= 0 &&
+                             m_groundPlatformIndex < static_cast<int>(m_platforms.size()) &&
+                             m_platforms[static_cast<size_t>(m_groundPlatformIndex)].IsMoving();
         ImGui::Text("vy %.0f px/s    跳跃按住 %.2f s（%s）", m_velocity.y, m_jumpHoldTime,
                     m_jumpHeld ? "按住中" : "已松开");
+        ImGui::Text("所站平台：%s", onMover ? "移动平台（随平台位移）" : "地面 / 静态平台");
         ImGui::TextDisabled("ImGui 键盘捕获 %s / 文本输入 %s", io.WantCaptureKeyboard ? "开" : "关",
                             io.WantTextInput ? "开" : "关");
         ImGui::Separator();
@@ -902,6 +1507,15 @@ void PlatformerLayer::RenderHud()
             ImGui::DragFloat("起跳初速度", &m_tuning.jumpVelocity, 5.0f, 200.0f, 1400.0f, "%.0f");
             ImGui::DragFloat("松键削减", &m_tuning.jumpCutScale, 0.01f, 0.10f, 1.0f, "%.2f");
             ImGui::DragFloat("削减下限", &m_tuning.jumpCutMinVelocity, 5.0f, 0.0f, 800.0f, "%.0f");
+        }
+        if (ImGui::CollapsingHeader("4) 陷阱宽容度", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat("致命伸出阈值", &m_tuning.spikeDeadlyExtend, 0.01f, 0.0f, 1.0f, "%.2f");
+            ImGui::DragFloat("判定宽度系数", &m_tuning.spikeHitboxShrink, 0.01f, 0.30f, 1.20f, "%.2f");
+            ImGui::Checkbox("显示判定盒", &m_showHitboxes);
+            ImGui::TextDisabled("伸缩尖刺：露尖阶段不致命，完全弹出才判定");
+            if (ImGui::Button("重开关卡 (R)")) {
+                ResetLevel();
+            }
         }
         if (ImGui::CollapsingHeader("宽容与移动")) {
             ImGui::DragFloat("Coyote 时间", &m_tuning.coyoteTime, 0.005f, 0.0f, 0.30f, "%.3f");

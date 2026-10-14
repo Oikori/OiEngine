@@ -20,7 +20,7 @@
   - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
   - `ShadowDemo.h` / `ShadowDemo.cpp` — 阴影演示（地面 + 几何体 + PBR 光照 + 可调方向光；详见「阴影」一节）
   - `IndoorDemo.h` / `IndoorDemo.cpp` — 室内多光源演示（房间 + 吊灯/壁灯/台灯/射灯 + 阳光穿窗、Forward+ 剔除、聚光灯阴影、IBL 探针；详见「室内多光源」一节）
-  - `Platformer/` — 平台跳跃小游戏（详见「平台跳跃手感」一节）
+  - `Platformer/` — 平台跳跃小游戏（多段式关卡 + 移动平台 + 尖刺陷阱 + 存档点，详见「平台跳跃手感」一节）
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
   - 五个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3/F5/F6 切换 `SetActive`；
     场景内调试面板统一为 F4（原 PlaneGame 的 F3 调试键已迁移，避免与场景切换冲突）
@@ -87,6 +87,28 @@ cmake --preset mingw-debug      # 或 mingw-release
 其他：Coyote 0.10s、跳跃输入缓冲 0.12s；碰撞为分轴 + 8px 子步进的 AABB（防高速穿隧）；
 游戏输入用 `Input::IsKeyPressed` 轮询，只被 `ImGui::GetIO().WantTextInput` 屏蔽
 （**不能**用 `WantCaptureKeyboard`：打开 F4 面板后它常为 true，会让角色不听使唤）
+
+### 关卡元素（陷阱 / 移动平台 / 存档点）
+
+关卡从起点营地起分 §A~§F 六段（尖刺教学 → 阶梯 + 伸缩尖刺 → 深渊 + 水平移动平台 → 垂直升降 + 壁刺走廊 →
+天花板闸门 → 终局跳台），全部数据都在 `PlatformerLayer::BuildLevel()` 里按「顶面高度」书写：
+
+- `AddGround/AddBlock` 参数是 `top`（顶面），内部换算成中心 + 半尺寸；`AddMovingPlatform` 给的则是**中心**的路径两端
+- **深坑一律不设坑底**（§B 缺口 / §D 深渊 / §F 缺口）：相机 y 固定为 0、视野底只有 -450，坑底机关玩家根本看不到，
+  掉下去就该按坠落处理（提示「掉下去了」）。尖刺只在**看得见的地方**出现（地面 / 平台顶 / 贴墙 / 吊顶 / 顶盖上）
+- **移动平台**与静态平台共用 `Platform` 与同一套碰撞：`speed > 0` 即为移动平台，沿 `pathStart → pathEnd` 往返、
+  端点停顿 `pauseTime`；`UpdatePlatforms` 每帧把实际位移写进 `velocity`，玩家踩在它上面时（`m_groundPlatformIndex`）
+  把这部分位移叠加进自己的移动
+- Y 轴碰撞解算按**最小推出距离**判断「落顶面 / 撞底面」，不能只看位移方向：上行升降台载人时玩家的净位移是向上的，
+  按方向判定会被误判成撞头而塞到平台下方（就是"平台一向上移动角色就掉下去"那个 bug）
+- **尖刺** `Spike::position` 是附着面中心，`direction` 决定齿朝向（朝上 / 吊顶朝下 / 贴墙左右）；判定盒由
+  `SpikeHitbox()` 按旋转后的 AABB 计算，并做两处宽容：横向乘 `spikeHitboxShrink`（0.78）、靠基座 0.2 倍高度内不判定
+- **伸缩尖刺**（`cyclic`）的时间轴在 `SpikeExtendAt(phase)`：缩回 50% → 预警露尖 10%（**不致命**，配琥珀色脉冲光晕提示）
+  → 快速弹出 7% → 完全伸出 23% → 收回 10%。`spikeDeadlyExtend`（0.45）是开始致命的总闸门阈值；
+  §F 的天花板闸门就是「趁完全缩回时一口气跑过去」的关卡，顶盖上面还补了尖刺堵住翻越近路
+- **存档点**更新 `m_respawnPoint`；尖刺 / 坠落死亡只回到最近存档点（金币、用时保留）并触发震屏 + 闪红，
+  R 才是整关重建（`ResetLevel` 里调 `BuildLevel()`，云层和远山放在 `BuildBackdrop()` 里只生成一次，避免重开时随机重排）
+- F4 面板「陷阱宽容度」可调上面两个阈值，并可勾选**显示判定盒**（平台绿 / 尖刺红 / 玩家白）方便对齐数值
 
 ## 渲染：2D 场景的 z 约定
 
