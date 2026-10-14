@@ -25,6 +25,11 @@ namespace OiEngine {
 			s_RendererAPI->Clear();
 		}
 
+		static void ClearDepth()
+		{
+			s_RendererAPI->ClearDepth();
+		}
+
 		static void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0)
 		{
 			s_RendererAPI->DrawIndexed(vertexArray, indexCount);
@@ -33,6 +38,11 @@ namespace OiEngine {
 		static void DrawLines(const Ref<VertexArray>& vertexArray, uint32_t vertexCount)
 		{
 			s_RendererAPI->DrawLines(vertexArray, vertexCount);
+		}
+
+		static void BindTexture2D(uint32_t slot, uint32_t textureRendererID)
+		{
+			s_RendererAPI->BindTexture2D(slot, textureRendererID);
 		}
 
 		static void SetLineWidth(float width)

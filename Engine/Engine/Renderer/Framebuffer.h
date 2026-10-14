@@ -14,6 +14,7 @@ namespace OiEngine {
 
 		// Depth/stencil
 		DEPTH24STENCIL8,
+		DEPTH24,  // 纯深度：阴影贴图等需要采样深度纹理的场合（NEAREST + 边界外返回 1.0）
 
 		// Defaults
 		Depth = DEPTH24STENCIL8
@@ -56,6 +57,7 @@ namespace OiEngine {
 		virtual void ClearAttachment(uint32_t attachmentIndex, int value) = 0;
 
 		virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const = 0;
+		virtual uint32_t GetDepthAttachmentRendererID() const = 0;
 
 		virtual const FramebufferSpecification& GetSpecification() const = 0;
 

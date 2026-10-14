@@ -27,6 +27,8 @@ namespace OiEngine {
 	    m_window->SetEventCallback(OI_BIND_EVENT_FN(Application::OnEvent));
 
 	    Renderer::Init();
+	    // 用初始窗口尺寸设置视口（Renderer 也会记录，供阴影 pass 结束后恢复）
+	    Renderer::OnWindowResize(m_window->GetWidth(), m_window->GetHeight());
 
 	    // UI 调试层：作为 overlay 恒居栈顶，业务层可直接用 ImGui:: API 绘制调试界面
 	    m_imguiLayer = new ImGuiLayer();

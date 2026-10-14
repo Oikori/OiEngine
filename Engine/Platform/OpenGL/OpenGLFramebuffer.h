@@ -18,7 +18,8 @@ namespace OiEngine {
 
 		void ClearAttachment(uint32_t attachmentIndex, int value) override;
 
-		uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override { OI_ASSERT(index < m_ColorAttachments.size()); return m_colorAttachments[index]; }
+		uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override { OI_ASSERT(index < m_colorAttachments.size()); return m_colorAttachments[index]; }
+		uint32_t GetDepthAttachmentRendererID() const override { OI_ASSERT(m_depthAttachment != 0); return m_depthAttachment; }
 
 		const FramebufferSpecification& GetSpecification() const override { return m_specification; }
 	private:

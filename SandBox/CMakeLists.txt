@@ -6,6 +6,7 @@ add_executable(${PROJECT_NAME}
     main.cpp
     PlaneGame.cpp
     SolarSystem.cpp
+    ShadowDemo.cpp
     Platformer/Platformer.cpp
 )
 

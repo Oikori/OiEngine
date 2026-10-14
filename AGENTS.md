@@ -3,7 +3,7 @@
 自研 C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（≥3.20）。
 
 - `Engine`：动态库（产物 `output/libEngine.dll`）
-- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、平台跳跃三个场景，F1/F2/F3 切换）
+- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、平台跳跃、阴影演示四个场景，F1/F2/F3/F5 切换）
 - 渲染后端 OpenGL（glad + glfw），日志 spdlog，图像加载 stb_image，数学库 glm
 
 ## 目录结构
@@ -12,15 +12,16 @@
   - `Engine/Engine/Core/` — `Base.h`（OI_API / OI_ASSERT / Scope / Ref）、`Log.h`、Application、Layer、LayerStack、Window、Input、Timer
   - `Engine/Engine/Events/` — 事件系统（Event、ApplicationEvent、KeyEvent、MouseEvent）
   - `Engine/Engine/Math/` — `Random` / `UUID` 工具类；几何数学已迁移至 glm（见下文），总入口是 `Engine/Engine/Math.h`
-  - `Engine/Engine/Renderer/` — Renderer、Camera、Shader、Buffer、VertexArray、Framebuffer 等抽象
+  - `Engine/Engine/Renderer/` — Renderer、Camera、Shader、Buffer、VertexArray、Framebuffer、ShadowMap 等抽象
   - `Engine/Engine/UI/` — `ImGuiLayer`（Dear ImGui 封装，作为 overlay 由 Application 内置）
   - `Engine/Platform/` — `OpenGL/`、`Windows/` 平台实现
 - `SandBox/` — demo 可执行程序
   - `PlaneGame.h` / `PlaneGame.cpp` — 飞机大战（程序化几何 + 正交相机，全部顶点色，无图片资源）
   - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
+  - `ShadowDemo.h` / `ShadowDemo.cpp` — 阴影演示（地面 + 几何体 + 可调方向光；详见「阴影」一节）
   - `Platformer/` — 平台跳跃小游戏（详见「平台跳跃手感」一节）
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
-  - 三个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3 切换 `SetActive`；
+  - 四个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3/F5 切换 `SetActive`；
     场景内调试面板统一为 F4（原 PlaneGame 的 F3 调试键已迁移，避免与场景切换冲突）
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm（glfw/spdlog/imgui/glm 登记为 git submodule）
 - `test/` — 原数学库验证用例已删除（详见 `test/README.md`）；不参与 CMake，被 .gitignore 忽略
@@ -123,6 +124,38 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 未声明该 uniform 块的 shader（如 unlit 绘制）不受影响；`SceneEnvironment` 是场景自有的普通对象，多个场景各建各的
 - 光照按世界空间位置/法线计算；太阳系球体因球心在局部原点直接用位置方向当法线（变换后 `mat3(u_Transform) * a_Position`）
 - SandBox 太阳系演示：太阳位置放暖色点光源 + 冷色环境光，UI 可调 Ambient / Sun intensity / Sun range
+
+## 阴影（方向光 shadow map）
+
+- `ShadowMap`（`Engine/Engine/Renderer/ShadowMap.h`）：只含一个深度附件（`FramebufferTextureFormat::DEPTH24`）的离屏帧缓冲；
+  深度纹理为 NEAREST + CLAMP_TO_BORDER（边界外返回 1.0）；`BindDepthTexture(slot)` 绑定到指定纹理单元供着色器采样
+- 每帧流程（在主场景 `BeginScene` 之前）：
+
+  ```cpp
+  const DirectionalLightShadow shadow = ComputeDirectionalLightShadow(sun, sceneCenter, sceneRadius);  // 正交投影覆盖包围球
+  Renderer::BeginShadowPass(m_shadowMap, shadow.view, shadow.projection);  // 上传光源相机 + 阴影数据，绑定 FBO、清深度
+  for (const auto& caster : casters) {
+      Renderer::Submit(depthShader, caster.mesh, caster.transform);  // 只写深度的着色器（顶点变换即可，无需颜色输出）
+  }
+  Renderer::EndShadowPass(m_shadowMap);  // 解绑 FBO、恢复窗口视口
+  ```
+
+- 阴影 pass 复用**相机 UBO（binding = 0）**上传光源相机（深度着色器与普通着色器读法一致；主场景 `BeginScene` 会重新上传真正相机）；
+  光空间矩阵与阴影参数走**阴影 UBO（binding = 2）**，shader 侧声明（与 `Renderer.cpp` 的 `ShadowData` std140 布局严格对应）：
+
+  ```glsl
+  layout(std140, binding = 2) uniform Shadow {
+      mat4 u_LightSpaceMatrix;  // 世界空间 -> 光空间裁剪空间
+      vec4 u_ShadowParams;      // x: 1/贴图尺寸（texel 大小）；y: 深度偏移基数（ShadowMap::SetBias）
+  };
+  ```
+
+- 采样（3x3 PCF）示例见 SandBox `ShadowDemo.cpp` 的 `LIT_FRAGMENT_SHADER`：世界坐标乘 `u_LightSpaceMatrix` 后 `* 0.5 + 0.5`
+  得到 [0,1] 光空间坐标，与深度纹理 `.r` 比较；bias 用斜率缩放（`max(bias * (1 - NdotL), bias * 0.2)`）防自阴影条纹；
+  只对方向光乘可见度（点光 / 聚光分支不采样）
+- 深度纹理通过 `ShadowMap::BindDepthTexture(slot)` 绑定（内部 `RenderCommand::BindTexture2D`），再用 `shader->SetInt("u_ShadowMap", slot)` 指定采样单元
+- 底层接口：`Framebuffer` 增加 `GetDepthAttachmentRendererID()` 与 `DEPTH24` 格式；`RenderCommand::ClearDepth()`、`RenderCommand::BindTexture2D(slot, textureID)`
+- SandBox F5「阴影演示」：地面 + 立方体 / 球体 + 可调太阳方向与 bias 的环绕相机；UI 勾选可预览 shadow map（`ImGui::Image` 绑定深度纹理）
 
 ## 数学库（glm）
 

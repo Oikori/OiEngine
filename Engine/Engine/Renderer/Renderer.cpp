@@ -14,6 +14,8 @@ namespace OiEngine {
 		// shader 侧约定：光照 UBO 的 binding 与最大光源数（shader 里写作 binding = 1 / MAX_LIGHTS），需与 shader 保持一致
 		constexpr uint32_t LightingUBOBinding = 1;
 		constexpr uint32_t MaxLights = 32;
+		// 阴影 UBO（shader 里写作 binding = 2）
+		constexpr uint32_t ShadowUBOBinding = 2;
 
 		// 打包后的单个光源（std140 布局，与 shader 中 Light 结构体逐字段对应）
 		struct LightData {
@@ -43,6 +45,19 @@ namespace OiEngine {
 		static_assert(offsetof(LightingData, lightCount) == 16, "lightCount must start at offset 16");
 		static_assert(offsetof(LightingData, lights) == 32, "lights must start at offset 32");
 		static_assert(sizeof(LightingData) == 32 + MaxLights * 64, "LightingData size mismatch");
+
+		// 打包后的阴影数据（std140 布局，与 shader 中 uniform 块逐字段对应）：
+		//
+		//   layout(std140, binding = 2) uniform Shadow {
+		//       mat4 u_LightSpaceMatrix;  // 世界空间 -> 光空间裁剪空间
+		//       vec4 u_ShadowParams;      // x: 1/贴图尺寸（texel 大小）；y: 深度偏移基数
+		//   };
+		struct ShadowData {
+			glm::mat4 lightSpaceMatrix;
+			glm::vec4 params;
+		};
+
+		static_assert(sizeof(ShadowData) == 80, "ShadowData must match the std140 layout in shader");
 
 		// 按 Directional -> Point -> Spot 顺序填充，总数超过 MaxLights 的部分被忽略
 		void PackLightingData(const SceneEnvironment& lighting, LightingData& data)
@@ -90,6 +105,10 @@ namespace OiEngine {
 
 	Ref<UniformBuffer> Renderer::s_cameraBuffer = nullptr;
 	Ref<UniformBuffer> Renderer::s_lightingBuffer = nullptr;
+	Ref<UniformBuffer> Renderer::s_shadowBuffer = nullptr;
+
+	uint32_t Renderer::s_viewportWidth = 0;
+	uint32_t Renderer::s_viewportHeight = 0;
 
 	void Renderer::Init()
 	{
@@ -99,16 +118,25 @@ namespace OiEngine {
 		s_cameraBuffer = UniformBuffer::Create(sizeof(CameraData), CameraUBOBinding);
 		// 光照 UBO：容量固定为 MaxLights 个光源，shader 里以 binding = 1 读取
 		s_lightingBuffer = UniformBuffer::Create(sizeof(LightingData), LightingUBOBinding);
+		// 阴影 UBO：BeginShadowPass 时上传，shader 里以 binding = 2 读取；先置零，未跑过阴影 pass 时采样不产生阴影
+		s_shadowBuffer = UniformBuffer::Create(sizeof(ShadowData), ShadowUBOBinding);
+		ShadowData zero;
+		zero.lightSpaceMatrix = glm::mat4(0.0f);  // 注意 glm::mat4(0.0f) 是全零矩阵
+		zero.params = glm::vec4(0.0f);
+		s_shadowBuffer->SetData(&zero, sizeof(ShadowData));
 	}
 
 	void Renderer::Shutdown()
 	{
+		s_shadowBuffer.reset();
 		s_cameraBuffer.reset();
 		s_lightingBuffer.reset();
 	}
 
 	void Renderer::OnWindowResize(uint32_t width, uint32_t height)
 	{
+		s_viewportWidth = width;
+		s_viewportHeight = height;
 		RenderCommand::SetViewport(0, 0, width, height);
 	}
 
@@ -127,6 +155,38 @@ namespace OiEngine {
 
 	void Renderer::EndScene()
 	{
+	}
+
+	void Renderer::BeginShadowPass(const Ref<ShadowMap>& shadowMap, const glm::mat4& lightView, const glm::mat4& lightProjection)
+	{
+		OI_ASSERT(shadowMap, "Shadow map is null!");
+
+		// 复用相机 UBO（binding = 0）：阴影 pass 里几何着色器（深度着色器）读到的是光源相机的视图 / 投影。
+		// 主场景的 BeginScene 会重新上传真正的相机数据，调用顺序保证互不干扰。
+		CameraData cameraData;
+		cameraData.projection = lightProjection;
+		cameraData.view = lightView;
+		cameraData.cameraPosition = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);  // 方向光无位置，占位
+		s_cameraBuffer->SetData(&cameraData, sizeof(CameraData));
+
+		ShadowData shadowData;
+		shadowData.lightSpaceMatrix = lightProjection * lightView;
+		shadowData.params = glm::vec4(1.0f / static_cast<float>(shadowMap->GetSize()), shadowMap->GetBias(), 0.0f, 0.0f);
+		s_shadowBuffer->SetData(&shadowData, sizeof(ShadowData));
+
+		shadowMap->Begin();
+	}
+
+	void Renderer::EndShadowPass(const Ref<ShadowMap>& shadowMap)
+	{
+		OI_ASSERT(shadowMap, "Shadow map is null!");
+
+		shadowMap->End();
+
+		// 阴影贴图尺寸与窗口不同，恢复窗口视口（窗口尺寸由 OnWindowResize 记录）
+		if (s_viewportWidth > 0 && s_viewportHeight > 0) {
+			RenderCommand::SetViewport(0, 0, s_viewportWidth, s_viewportHeight);
+		}
 	}
 
 	void Renderer::Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform)

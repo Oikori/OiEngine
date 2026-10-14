@@ -55,6 +55,13 @@ namespace OiEngine {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	}
 
+	void OpenGLRendererAPI::ClearDepth()
+	{
+		// 保证清深度有效（在此之前若有代码改过深度写入状态）
+		glDepthMask(GL_TRUE);
+		glClear(GL_DEPTH_BUFFER_BIT);
+	}
+
 	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount)
 	{
 		vertexArray->Bind();
@@ -66,6 +73,12 @@ namespace OiEngine {
 	{
 		vertexArray->Bind();
 		glDrawArrays(GL_LINES, 0, vertexCount);
+	}
+
+	void OpenGLRendererAPI::BindTexture2D(uint32_t slot, uint32_t textureRendererID)
+	{
+		glActiveTexture(GL_TEXTURE0 + slot);
+		glBindTexture(GL_TEXTURE_2D, textureRendererID);
 	}
 
 	void OpenGLRendererAPI::SetLineWidth(float width)
