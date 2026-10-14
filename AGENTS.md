@@ -180,7 +180,10 @@ cmake --preset mingw-debug      # 或 mingw-release
 
 - `.gitignore`：`.idea`、`output`、`test/*`；`build/` 由 CMake 生成的 .gitignore 覆盖
 - `vendor/glfw`、`vendor/spdlog`、`vendor/imgui`、`vendor/glm` 是 submodule（分支跟踪：glfw `master`、spdlog `v1.x`、imgui `docking`、glm `master`；更新用 `git submodule update --remote <path>`）；`glad`、`stb_image` 直接入库
-- 行尾为 LF，git 提示 "LF will be replaced by CRLF" 属正常
+- 行尾约定：**新增文件一律使用 CRLF**（创建时就写 `\r\n`，不要事后依赖 checkout 转换）。
+  仓库 `core.autocrlf=true`：提交时规范化为 LF 储存、checkout 时转回 CRLF，因此 git 的
+  "LF will be replaced by CRLF" 提示属正常；若新文件误用 LF，用 PowerShell 统一转换：
+  `[IO.File]::WriteAllText($p, [IO.File]::ReadAllText($p) -replace "`r`n", "`n" -replace "`n", "`r`n")`
 
 ## 协作习惯
 
