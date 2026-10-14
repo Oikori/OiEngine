@@ -3,7 +3,7 @@
 #include "RenderCommand.h"
 #include "Shader.h"
 #include "Camera.h"
-#include "LightingEnvironment.h"
+#include "SceneEnvironment.h"
 #include "UniformBuffer.h"
 
 namespace OiEngine {
@@ -14,8 +14,8 @@ namespace OiEngine {
 		
 		static void OnWindowResize(uint32_t width, uint32_t height);
 
-		// 带光照的场景：额外把 LightingEnvironment 打包上传到光照 UBO（binding = 1）
-		static void BeginScene(const Camera& camera, const LightingEnvironment& lighting = {});
+		// 带光照的场景：额外把 SceneEnvironment 打包上传到光照 UBO（binding = 1）
+		static void BeginScene(const Camera& camera, const SceneEnvironment& scene = {});
 		static void EndScene();
 
 		static void Submit(const Ref<Shader>& shader, const Ref<VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));

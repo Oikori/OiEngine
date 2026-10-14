@@ -45,7 +45,7 @@ namespace OiEngine {
 		static_assert(sizeof(LightingData) == 32 + MaxLights * 64, "LightingData size mismatch");
 
 		// 按 Directional -> Point -> Spot 顺序填充，总数超过 MaxLights 的部分被忽略
-		void PackLightingData(const LightingEnvironment& lighting, LightingData& data)
+		void PackLightingData(const SceneEnvironment& lighting, LightingData& data)
 		{
 			data.ambient = glm::vec4(lighting.ambientColor, lighting.ambientIntensity);
 
@@ -112,7 +112,7 @@ namespace OiEngine {
 		RenderCommand::SetViewport(0, 0, width, height);
 	}
 
-	void Renderer::BeginScene(const Camera& camera, const LightingEnvironment& lighting)
+	void Renderer::BeginScene(const Camera& camera, const SceneEnvironment& scene)
 	{
 	    CameraData cameraData;
 	    cameraData.projection = camera.GetProjectionMatrix();
@@ -121,7 +121,7 @@ namespace OiEngine {
 	    s_cameraBuffer->SetData(&cameraData, sizeof(CameraData));
 
 		LightingData lightingData{};
-		PackLightingData(lighting, lightingData);
+		PackLightingData(scene, lightingData);
 		s_lightingBuffer->SetData(&lightingData, sizeof(LightingData));
 	}
 

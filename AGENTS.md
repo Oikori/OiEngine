@@ -106,7 +106,7 @@ cmake --preset mingw-debug      # 或 mingw-release
 ## 光照（3D）
 
 - 光源定义在 `Engine/Engine/Renderer/Light.h`：`DirectionalLight`（direction 为传播方向）、`PointLight`、`SpotLight`（inner/outerAngle 为半角、弧度）
-- 场景用 `LightingEnvironment`（纯数据 struct，字段直用：`ambientColor`/`ambientIntensity`/`directionalLights`/`pointLights`/`spotLights`）；`Renderer::BeginScene(camera, lighting)` 时打包上传（binding = 1 与 std140 打包细节都在 `Renderer.cpp` 里）
+- 场景用 `SceneEnvironment`（纯数据 struct，字段直用：`ambientColor`/`ambientIntensity`/`directionalLights`/`pointLights`/`spotLights`）；`Renderer::BeginScene(camera, scene)` 时打包上传（binding = 1 与 std140 打包细节都在 `Renderer.cpp` 里）
 - shader 侧需自行声明同布局的 uniform 块（示例见 SandBox `SolarSystem.cpp` 的 `LIT_FRAGMENT_SHADER`）：
 
   ```glsl
@@ -120,7 +120,7 @@ cmake --preset mingw-debug      # 或 mingw-release
 
 - 光源上限 32（`Renderer.cpp` 里的 `MaxLights`），shader 里 `MAX_LIGHTS` 必须一致（`Renderer.cpp` 内有 `static_assert` 校验 std140 布局与大小）
 - 打包顺序 Directional → Point → Spot；点光/聚光在 range 内平方衰减，聚光锥形因子用 `cos(innerAngle)/cos(outerAngle)` 插值
-- 未声明该 uniform 块的 shader（如 unlit 绘制）不受影响；`LightingEnvironment` 是场景自有的普通对象，多个场景各建各的
+- 未声明该 uniform 块的 shader（如 unlit 绘制）不受影响；`SceneEnvironment` 是场景自有的普通对象，多个场景各建各的
 - 光照按世界空间位置/法线计算；太阳系球体因球心在局部原点直接用位置方向当法线（变换后 `mat3(u_Transform) * a_Position`）
 - SandBox 太阳系演示：太阳位置放暖色点光源 + 冷色环境光，UI 可调 Ambient / Sun intensity / Sun range
 

@@ -50,7 +50,7 @@ private:
     uint32_t m_orbitVertexCount = 0;
     std::vector<CelestialBody> m_planets;
     SolarSystemCamera m_camera;
-    OiEngine::LightingEnvironment m_lighting;  // 环境光 + 位于太阳位置的点光源
+    OiEngine::SceneEnvironment m_scene;  // 环境光 + 位于太阳位置的点光源
 
     // UI 调试状态
     bool m_active = true;  // 场景是否激活（由 SceneSwitcher 控制）

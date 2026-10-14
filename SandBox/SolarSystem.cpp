@@ -405,9 +405,9 @@ void SolarSystemLayer::OnAttach()
     }
 
     // 光照：微弱冷色环境光 + 位于太阳位置的点光源（行星面向太阳一侧被照亮）
-    m_lighting.ambientColor = glm::vec3(0.35f, 0.42f, 0.60f);
-    m_lighting.ambientIntensity = m_ambientIntensity;
-    m_lighting.pointLights.push_back({
+    m_scene.ambientColor = glm::vec3(0.35f, 0.42f, 0.60f);
+    m_scene.ambientIntensity = m_ambientIntensity;
+    m_scene.pointLights.push_back({
         .position = glm::vec3(0.0f, 0.0f, 0.0f),
         .range = m_sunRange,
         .color = glm::vec3(1.0f, 0.86f, 0.58f),
@@ -445,13 +445,13 @@ void SolarSystemLayer::OnUpdate()
     }
 
     // 同步 UI 调整到光照参数
-    m_lighting.ambientIntensity = m_ambientIntensity;
-    PointLight& sunLight = m_lighting.pointLights.front();
+    m_scene.ambientIntensity = m_ambientIntensity;
+    PointLight& sunLight = m_scene.pointLights.front();
     sunLight.intensity = m_sunIntensity;
     sunLight.range = m_sunRange;
 
     // 开始场景：先上传相机 / 光照 UBO，此后所有绘制都能从 UBO 读取
-    Renderer::BeginScene(m_camera, m_lighting);
+    Renderer::BeginScene(m_camera, m_scene);
 
     // 1. 轨道线
     UseUnlitShader(glm::mat4(1.0f));
