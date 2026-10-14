@@ -135,5 +135,6 @@ int main(int argc, char *argv[])
     indoorDemo->SetActive(false);
 
     Application::Get().Run();
+    Application::Get().Shutdown();
     return 0;
 }

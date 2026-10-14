@@ -46,6 +46,9 @@ namespace OiEngine {
         void Run();
         void Close();
 
+        // 释放层、渲染器与窗口（Run 返回后由 main 调用）；重复调用无副作用，析构时也会兜底执行
+        void Shutdown();
+
         static Application& Get();
 
         const ApplicationSpecification& GetSpecification() const { return m_specification; }
@@ -63,12 +66,13 @@ namespace OiEngine {
         ApplicationSpecification m_specification;
         Scope<Window> m_window;
         bool m_running = true;
+        bool m_shutdown = false;
         bool m_minimized = false;
         LayerStack m_layerStack;
-        ImGuiLayer* m_imguiLayer = nullptr;  // 由 m_layerStack 持有，随 Application 析构统一释放
+        ImGuiLayer* m_imguiLayer = nullptr;  // 由 m_layerStack 持有，随 Shutdown（或析构时兜底）统一释放
         float m_fixedUpdateAccumulator = 0.0f;
 
-        std::vector<std::function<void()>> m_MainThreadQueue;
-        std::mutex m_MainThreadQueueMutex;
+        std::vector<std::function<void()>> m_mainThreadQueue;
+        std::mutex m_mainThreadQueueMutex;
     };
 }

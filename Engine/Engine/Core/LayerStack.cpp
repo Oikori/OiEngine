@@ -33,4 +33,10 @@ namespace OiEngine {
             m_layers.erase(it);
         }
     }
+
+    void LayerStack::Clear()
+    {
+        m_layers.clear();
+        m_layerInsertIndex = 0;
+    }
 }

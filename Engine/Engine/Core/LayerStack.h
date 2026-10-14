@@ -21,6 +21,9 @@ namespace OiEngine {
         void PopLayer(Layer* layer);
         void PopOverlay(Layer* overlay);
 
+        // 清空栈（同样不负责层对象生命周期）
+        void Clear();
+
         std::vector<Layer*>::iterator begin() { return m_layers.begin(); }
         std::vector<Layer*>::iterator end() { return m_layers.end(); }
         std::vector<Layer*>::reverse_iterator rbegin() { return m_layers.rbegin(); }

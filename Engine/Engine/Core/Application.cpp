@@ -9,19 +9,38 @@
 namespace OiEngine {
 	Application::~Application()
 	{
+	    // 兜底：main 中未显式调用 Shutdown 时在此释放（Shutdown 幂等）
+	    Shutdown();
+	}
+
+	// 释放层、渲染器与窗口；窗口持有 GL 上下文，必须最后销毁
+	void Application::Shutdown()
+	{
+	    if (m_shutdown) {
+	        return;
+	    }
+	    m_shutdown = true;
+
 	    for (Layer* layer : m_layerStack) {
 	        layer->OnDetach();
 	        delete layer;
 	    }
-		Renderer::Shutdown();
+	    m_layerStack.Clear();
+	    m_imguiLayer = nullptr;
+
+	    Renderer::Shutdown();
+	    m_window.reset();
 	}
 
     void Application::Init(const ApplicationSpecification& specification)
 	{
 	    m_specification = specification;
+	    m_running = true;
+	    m_shutdown = false;  // 允许 Shutdown 后重新 Init / Run
 	    // Set working directory here
-	    if (!m_specification.workingDirectory.empty())
+	    if (!m_specification.workingDirectory.empty()) {
 	        std::filesystem::current_path(m_specification.workingDirectory);
+	    }
 
 	    m_window = Window::Create(WindowProps(m_specification.name));
 	    m_window->SetEventCallback(OI_BIND_EVENT_FN(Application::OnEvent));
@@ -60,9 +79,9 @@ namespace OiEngine {
 
 	void Application::SubmitToMainThread(const std::function<void()>& function)
 	{
-		std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
+		std::scoped_lock<std::mutex> lock(m_mainThreadQueueMutex);
 
-		m_MainThreadQueue.emplace_back(function);
+		m_mainThreadQueue.emplace_back(function);
 	}
 
 	void Application::OnEvent(Event& e)
@@ -138,11 +157,12 @@ namespace OiEngine {
 
 	void Application::ExecuteMainThreadQueue()
 	{
-		std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
+		std::scoped_lock<std::mutex> lock(m_mainThreadQueueMutex);
 
-		for (auto& func : m_MainThreadQueue)
-			func();
+		for (auto& func : m_mainThreadQueue) {
+		    func();
+		}
 
-		m_MainThreadQueue.clear();
+		m_mainThreadQueue.clear();
 	}
 }
