@@ -20,6 +20,8 @@ namespace OiEngine {
 		virtual void ClearDepth() = 0;
 		// 深度测试开关（全屏后处理 pass 需要关闭，避免被场景深度剔除）
 		virtual void SetDepthTest(bool enabled) = 0;
+		// 混合开关（离屏 MRT / 体积渲染写入自定义 alpha 时需要关闭）
+		virtual void SetBlending(bool enabled) = 0;
 		// SSBO 内存屏障（compute 写入后、绘制读取前调用）
 		virtual void MemoryBarrierShaderStorage() = 0;
 
@@ -32,6 +34,8 @@ namespace OiEngine {
 		virtual void BindTexture2DArray(uint32_t slot, uint32_t textureRendererID) = 0;
 		// 把立方体贴图绑定到指定纹理单元（环境探针）
 		virtual void BindTextureCube(uint32_t slot, uint32_t textureRendererID) = 0;
+		// 把 3D 纹理绑定到指定纹理单元（体积噪声）
+		virtual void BindTexture3D(uint32_t slot, uint32_t textureRendererID) = 0;
 
 		virtual void SetLineWidth(float width) = 0;
 

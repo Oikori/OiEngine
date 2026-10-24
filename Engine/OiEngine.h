@@ -18,4 +18,5 @@
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Renderer/Shader.h"
 #include "Engine/Renderer/StorageBuffer.h"
+#include "Engine/Renderer/Texture.h"
 #include "Engine/Renderer/VertexArray.h"

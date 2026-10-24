@@ -8,13 +8,14 @@
 #include "SolarSystem.h"
 #include "ShadowDemo.h"
 #include "IndoorDemo.h"
+#include "VolumetricCloudDemo.h"
 #include "Platformer/Platformer.h"
 
 using namespace OiEngine;
 
 namespace {
-    // 场景切换器（overlay）：F1 飞机大战 / F2 太阳系 / F3 平台跳跃 / F5 阴影演示 / F6 室内多光源
-    constexpr int SceneCount = 5;
+    // 场景切换器（overlay）：F1 飞机大战 / F2 太阳系 / F3 平台跳跃 / F5 阴影演示 / F6 室内多光源 / F7 体积云
+    constexpr int SceneCount = 6;
     struct SceneEntry {
         const char* key;
         const char* name;
@@ -25,15 +26,17 @@ namespace {
         { "F3", "平台跳跃" },
         { "F5", "阴影演示" },
         { "F6", "室内多光源" },
+        { "F7", "体积云地平线" },
     };
 
     class SceneSwitcherLayer : public Layer {
     public:
         SceneSwitcherLayer(SandBox::PlaneGameLayer* planeGame, SolarSystemLayer* solarSystem,
                            SandBox::PlatformerLayer* platformer, ShadowDemoLayer* shadowDemo,
-                           IndoorDemoLayer* indoorDemo)
+                           IndoorDemoLayer* indoorDemo, VolumetricCloudLayer* volumetricCloud)
             : Layer("SceneSwitcher"), m_planeGame(planeGame), m_solarSystem(solarSystem),
-              m_platformer(platformer), m_shadowDemo(shadowDemo), m_indoorDemo(indoorDemo)
+              m_platformer(platformer), m_shadowDemo(shadowDemo), m_indoorDemo(indoorDemo),
+              m_volumetricCloud(volumetricCloud)
         {
         }
 
@@ -58,6 +61,9 @@ namespace {
                 event.handled = true;
             } else if (key == Key::F6 && !m_indoorDemo->IsActive()) {
                 SetScene(4);
+                event.handled = true;
+            } else if (key == Key::F7 && !m_volumetricCloud->IsActive()) {
+                SetScene(5);
                 event.handled = true;
             }
         }
@@ -96,6 +102,7 @@ namespace {
             m_platformer->SetActive(scene == 2);
             m_shadowDemo->SetActive(scene == 3);
             m_indoorDemo->SetActive(scene == 4);
+            m_volumetricCloud->SetActive(scene == 5);
         }
 
         SandBox::PlaneGameLayer* m_planeGame = nullptr;
@@ -103,6 +110,7 @@ namespace {
         SandBox::PlatformerLayer* m_platformer = nullptr;
         ShadowDemoLayer* m_shadowDemo = nullptr;
         IndoorDemoLayer* m_indoorDemo = nullptr;
+        VolumetricCloudLayer* m_volumetricCloud = nullptr;
         int m_current = 0;
     };
 }
@@ -120,19 +128,23 @@ int main(int argc, char *argv[])
     auto* platformer = new SandBox::PlatformerLayer();
     auto* shadowDemo = new ShadowDemoLayer();
     auto* indoorDemo = new IndoorDemoLayer();
+    auto* volumetricCloud = new VolumetricCloudLayer();
 
     Application::Get().PushLayer(planeGame);
     Application::Get().PushLayer(solarSystem);
     Application::Get().PushLayer(platformer);
     Application::Get().PushLayer(shadowDemo);
     Application::Get().PushLayer(indoorDemo);
-    Application::Get().PushOverlay(new SceneSwitcherLayer(planeGame, solarSystem, platformer, shadowDemo, indoorDemo));
+    Application::Get().PushLayer(volumetricCloud);
+    Application::Get().PushOverlay(new SceneSwitcherLayer(planeGame, solarSystem, platformer, shadowDemo,
+                                                          indoorDemo, volumetricCloud));
 
     planeGame->SetActive(true);
     solarSystem->SetActive(false);
     platformer->SetActive(false);
     shadowDemo->SetActive(false);
     indoorDemo->SetActive(false);
+    volumetricCloud->SetActive(false);
 
     Application::Get().Run();
     Application::Get().Shutdown();

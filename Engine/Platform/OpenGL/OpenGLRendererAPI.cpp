@@ -70,6 +70,15 @@ namespace OiEngine {
 		}
 	}
 
+	void OpenGLRendererAPI::SetBlending(bool enabled)
+	{
+		if (enabled) {
+			glEnable(GL_BLEND);
+		} else {
+			glDisable(GL_BLEND);
+		}
+	}
+
 	void OpenGLRendererAPI::MemoryBarrierShaderStorage()
 	{
 		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -104,6 +113,12 @@ namespace OiEngine {
 	{
 		glActiveTexture(GL_TEXTURE0 + slot);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, textureRendererID);
+	}
+
+	void OpenGLRendererAPI::BindTexture3D(uint32_t slot, uint32_t textureRendererID)
+	{
+		glActiveTexture(GL_TEXTURE0 + slot);
+		glBindTexture(GL_TEXTURE_3D, textureRendererID);
 	}
 
 	void OpenGLRendererAPI::SetLineWidth(float width)

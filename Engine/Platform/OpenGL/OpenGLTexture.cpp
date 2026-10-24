@@ -7,6 +7,7 @@ namespace OiEngine {
 		static GLenum HazelImageFormatToGLDataFormat(ImageFormat format)
 		{
 			switch (format) {
+				case ImageFormat::R8:    return GL_RED;
 				case ImageFormat::RGB8:  return GL_RGB;
 				case ImageFormat::RGBA8: return GL_RGBA;
 			}
@@ -18,8 +19,21 @@ namespace OiEngine {
 		static GLenum HazelImageFormatToGLInternalFormat(ImageFormat format)
 		{
 			switch (format) {
-			    case ImageFormat::RGB8:  return GL_RGB8;
-			    case ImageFormat::RGBA8: return GL_RGBA8;
+				case ImageFormat::R8:    return GL_R8;
+				case ImageFormat::RGB8:  return GL_RGB8;
+				case ImageFormat::RGBA8: return GL_RGBA8;
+			}
+
+			OI_ASSERT(false);
+			return 0;
+		}
+
+		static uint32_t BytesPerPixel(ImageFormat format)
+		{
+			switch (format) {
+				case ImageFormat::R8:    return 1;
+				case ImageFormat::RGB8:  return 3;
+				case ImageFormat::RGBA8: return 4;
 			}
 
 			OI_ASSERT(false);
@@ -98,6 +112,40 @@ namespace OiEngine {
 	}
 
 	void OpenGLTexture2D::Bind(uint32_t slot) const
+	{
+		glBindTextureUnit(slot, m_rendererID);
+	}
+
+	OpenGLTexture3D::OpenGLTexture3D(const Texture3DSpecification& specification)
+		: m_specification(specification), m_width(specification.width), m_height(specification.height), m_depth(specification.depth)
+	{
+		m_internalFormat = Utils::HazelImageFormatToGLInternalFormat(m_specification.format);
+		m_dataFormat = Utils::HazelImageFormatToGLDataFormat(m_specification.format);
+
+		glCreateTextures(GL_TEXTURE_3D, 1, &m_rendererID);
+		glTextureStorage3D(m_rendererID, 1, m_internalFormat, m_width, m_height, m_depth);
+
+		// 体积噪声需要三轴循环（REPEAT）与硬件三线性过滤
+		glTextureParameteri(m_rendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTextureParameteri(m_rendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTextureParameteri(m_rendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTextureParameteri(m_rendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTextureParameteri(m_rendererID, GL_TEXTURE_WRAP_R, GL_REPEAT);
+	}
+
+	OpenGLTexture3D::~OpenGLTexture3D()
+	{
+		glDeleteTextures(1, &m_rendererID);
+	}
+
+	void OpenGLTexture3D::SetData(const void* data, uint32_t size)
+	{
+		const uint32_t bpp = Utils::BytesPerPixel(m_specification.format);
+		OI_ASSERT(size == m_width * m_height * m_depth * bpp, "Data must be entire 3D texture!");
+		glTextureSubImage3D(m_rendererID, 0, 0, 0, 0, m_width, m_height, m_depth, m_dataFormat, GL_UNSIGNED_BYTE, data);
+	}
+
+	void OpenGLTexture3D::Bind(uint32_t slot) const
 	{
 		glBindTextureUnit(slot, m_rendererID);
 	}

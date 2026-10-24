@@ -25,4 +25,15 @@ namespace OiEngine {
 		OI_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
+
+	Ref<Texture3D> Texture3D::Create(const Texture3DSpecification& specification)
+	{
+		switch (RendererAPI::GetAPI()) {
+			case RendererAPI::API::None:    OI_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLTexture3D>(specification);
+		}
+
+		OI_ASSERT(false, "Unknown RendererAPI!");
+		return nullptr;
+	}
 }

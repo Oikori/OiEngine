@@ -3,7 +3,7 @@
 自研 C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（≥3.20）。
 
 - `Engine`：动态库（产物 `output/libEngine.dll`）
-- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、平台跳跃、阴影演示、室内多光源五个场景，F1/F2/F3/F5/F6 切换）
+- `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、平台跳跃、阴影演示、室内多光源、体积云六个场景，F1/F2/F3/F5/F6/F7 切换）
 - 渲染后端 OpenGL（glad + glfw），日志 spdlog，图像加载 stb_image，数学库 glm
 
 ## 目录结构
@@ -20,9 +20,10 @@
   - `SolarSystem.h` / `SolarSystem.cpp` — 太阳系演示
   - `ShadowDemo.h` / `ShadowDemo.cpp` — 阴影演示（地面 + 几何体 + PBR 光照 + 可调方向光；详见「阴影」一节）
   - `IndoorDemo.h` / `IndoorDemo.cpp` — 室内多光源演示（房间 + 吊灯/壁灯/台灯/射灯 + 阳光穿窗、Forward+ 剔除、聚光灯阴影、IBL 探针；详见「室内多光源」一节）
+  - `VolumetricCloudDemo.h` / `VolumetricCloudDemo.cpp` — 仿《地平线》体积云场景（程序化雪山 + 半分辨率光线步进云层 + 大气/太阳合成；详见「体积云」一节）
   - `Platformer/` — 平台跳跃小游戏（多段式关卡 + 移动平台 + 尖刺陷阱 + 存档点，详见「平台跳跃手感」一节）
   - `RenderHelpers.h` — SandBox 共用的矩阵辅助（Translate/Scale/RotateZ/Orthographic）与碰撞判断
-  - 五个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3/F5/F6 切换 `SetActive`；
+  - 六个场景都是 Layer，`main.cpp` 里的 `SceneSwitcherLayer`（overlay）用 F1/F2/F3/F5/F6/F7 切换 `SetActive`；
     场景内调试面板统一为 F4（原 PlaneGame 的 F3 调试键已迁移，避免与场景切换冲突）
   - 新增 `.cpp` 要同时加进 `SandBox/CMakeLists.txt`（SandBox 是显式源文件列表；`Engine/` 是 GLOB_RECURSE，
     新增引擎源文件只需重跑 `cmake --preset mingw-debug`）
@@ -286,6 +287,28 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 相机是轨道相机但**把机位夹在房间内**（`IndoorCamera::GetPosition` 里 `glm::clamp`）——室内观察用轨道相机必须限制，
   否则很容易转到墙外 / 天花板外
 - 性能参考（1600×900）：11 个光源约 5 ms 上限（vsync 200Hz）；211 个光源、剔除开启 1.19 ms
+
+## 体积云（SandBox/VolumetricCloudDemo，F7）
+
+仿《地平线》的云海场景，完全程序化，无外部贴图：
+
+- **地形**：900 段 × 900 段（约 78m 一格）高度场，域扭曲 + ridged FBM 生成雪山，两遍 3x3 高斯平滑后
+  按高度/坡度烘焙顶点色（森林、岩石、雪线），顶点法线用于方向光 + 天空环境光 + 距离雾
+- **云层**：天气图（2D Perlin FBM，R 云量 / G 塔高 / B 细节）控制覆盖与云顶高度，64³ RGBA8 的 3D
+  Perlin-Worley 噪声（R 形状 / G 中频 Worley / B 高频 Worley / A Perlin）负责云团与边缘侵蚀；
+  光线步进用双线性过滤的 3D 纹理，朝太阳的单次散射 + Beer-Powder 相位函数，远距离云层混入大气雾
+- **管线**：场景（RGBA16F + DEPTH24 离屏目标）→ 云层离屏目标（RGBA16F，RGB 预乘散射 / A 透过率，
+  分辨率比例可调，默认 1.0）→ 全分辨率合成（天空 + 太阳 + 地形 + 云 + ACES tonemap）。场景着色器输出线性 HDR，
+  不使用引擎 `PostProcess`（因此每帧显式 `Renderer::SetHDREnabled(false)` / `SetLightCullingEnabled(false)`）
+- **相机**：自由飞行（RMB 拖动视角、WASD/QE、Shift 加速、R 重置）；UI 有黄金时刻 / 蓝调 / 风暴 / 正午预设，
+  云量、密度、云底/云顶、步进次数、渲染比例、降噪、太阳角度、曝光、风速等实时可调；`1`~`4` 切换调试视图（最终 /
+  云透过率 / 场景 / 深度），`H` 隐藏面板
+- **降噪**：合成阶段对云层做深度感知 5x5 高斯（默认强度 0.6），压制逐像素抖动与高频侵蚀产生的颗粒；
+  细节侵蚀使用低频 Perlin 而非高频 Worley，避免云面出现细碎噪点
+- **引擎新增**：`Texture3D`（RGBA8、三轴 REPEAT、硬件三线性）、`RenderCommand::SetBlending`；`Texture2D` 与
+  `Framebuffer` 补了 `OI_API` 以便 SandBox 直接创建离屏目标。云层读取场景深度做遮挡，山体会正确挡住背后的云
+- 性能参考（1600×900，RTX 5060 Ti）：云层 144 步 + 5 次光步进 + 5x5 降噪约 9~11 ms；首次进入场景需生成地形与 3D 噪声，
+  约 3~4 秒（Debug 构建；Release 明显更快）
 
 
 ## 数学库（glm）

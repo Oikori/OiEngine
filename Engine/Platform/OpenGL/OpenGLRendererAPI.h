@@ -12,6 +12,7 @@ namespace OiEngine {
 		void Clear() override;
 		void ClearDepth() override;
 		void SetDepthTest(bool enabled) override;
+		void SetBlending(bool enabled) override;
 		void MemoryBarrierShaderStorage() override;
 
 		void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0) override;
@@ -20,6 +21,7 @@ namespace OiEngine {
 		void BindTexture2D(uint32_t slot, uint32_t textureRendererID) override;
 		void BindTexture2DArray(uint32_t slot, uint32_t textureRendererID) override;
 		void BindTextureCube(uint32_t slot, uint32_t textureRendererID) override;
+		void BindTexture3D(uint32_t slot, uint32_t textureRendererID) override;
 
 		void SetLineWidth(float width) override;
 	};

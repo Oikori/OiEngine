@@ -8,6 +8,7 @@ add_executable(${PROJECT_NAME}
     SolarSystem.cpp
     ShadowDemo.cpp
     IndoorDemo.cpp
+    VolumetricCloudDemo.cpp
     Platformer/Platformer.cpp
 )
 

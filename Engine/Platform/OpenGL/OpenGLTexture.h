@@ -39,4 +39,26 @@ namespace OiEngine {
 		GLenum m_internalFormat, m_dataFormat;
 	};
 
+	class OpenGLTexture3D : public Texture3D {
+	public:
+		OpenGLTexture3D(const Texture3DSpecification& specification);
+		~OpenGLTexture3D() override;
+
+		const Texture3DSpecification& GetSpecification() const override { return m_specification; }
+
+		uint32_t GetWidth() const override { return m_width; }
+		uint32_t GetHeight() const override { return m_height; }
+		uint32_t GetDepth() const override { return m_depth; }
+		uint32_t GetRendererID() const override { return m_rendererID; }
+
+		void SetData(const void* data, uint32_t size) override;
+
+		void Bind(uint32_t slot = 0) const override;
+	private:
+		Texture3DSpecification m_specification;
+		uint32_t m_width, m_height, m_depth;
+		uint32_t m_rendererID;
+		GLenum m_internalFormat, m_dataFormat;
+	};
+
 }

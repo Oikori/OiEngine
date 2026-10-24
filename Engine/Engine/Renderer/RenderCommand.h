@@ -35,6 +35,11 @@ namespace OiEngine {
 			s_RendererAPI->SetDepthTest(enabled);
 		}
 
+		static void SetBlending(bool enabled)
+		{
+			s_RendererAPI->SetBlending(enabled);
+		}
+
 		// 内存屏障：compute 写入 SSBO 后，让后续绘制（片元着色器读 SSBO）能看到结果
 		static void MemoryBarrierShaderStorage()
 		{
@@ -64,6 +69,11 @@ namespace OiEngine {
 		static void BindTextureCube(uint32_t slot, uint32_t textureRendererID)
 		{
 			s_RendererAPI->BindTextureCube(slot, textureRendererID);
+		}
+
+		static void BindTexture3D(uint32_t slot, uint32_t textureRendererID)
+		{
+			s_RendererAPI->BindTexture3D(slot, textureRendererID);
 		}
 
 		static void SetLineWidth(float width)
