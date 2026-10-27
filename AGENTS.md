@@ -27,6 +27,8 @@
     场景内调试面板统一为 F4（原 PlaneGame 的 F3 调试键已迁移，避免与场景切换冲突）
   - 新增 `.cpp` 要同时加进 `SandBox/CMakeLists.txt`（SandBox 是显式源文件列表；`Engine/` 是 GLOB_RECURSE，
     新增引擎源文件只需重跑 `cmake --preset mingw-debug`）
+- `Survivors/` — 第二个引用 `Engine` 的独立可执行工程：类《吸血鬼幸存者》俯视角生存游戏
+  （产物 `output/Survivors.exe`，源码只有 `main.cpp` + `SurvivorsGame.*` + `SurvivorsArt.*`；详见「幸存者」一节）
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm（glfw/spdlog/imgui/glm 登记为 git submodule）
 - `test/` — 原数学库验证用例已删除（详见 `test/README.md`）；不参与 CMake，被 .gitignore 忽略
 - `output/`、`build/` — 构建产物，不入库
@@ -66,6 +68,23 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 版本为 docking 分支（tag `v1.92.9b-docking`）；升级：`git submodule update --remote vendor/imgui`
 - 中文界面需在 `ImGuiLayer::OnAttach` 里加载字体：`io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 18.0f, nullptr, io.Fonts->GetGlyphRangesChineseSimplifiedCommon())`（默认字体不含中文）
 - 已知问题：勾选「使用以前版本的微软拼音输入法」（旧版 IME 兼容模式）时，Ctrl+Space 切换输入法（先放 Ctrl 再放 Space）后 ImGui slider 点击会变成输入框且无法输入。根源：旧版 IME 吞掉 Ctrl 的释放事件，GLFW 一直认为 Ctrl 按下，ImGui 把点击判定为 Ctrl+Click。**引擎无 bug，新版输入法正常**；不加 workaround，建议用户关闭旧版兼容模式。若将来需要兜底：每帧用 `GetAsyncKeyState` 复核修饰键物理状态并**直接覆盖 `io.KeyCtrl` 等字段**（注意 ImGui 1.92 起 `io.AddKeyEvent` 只入队、`NewFrame()` 里才处理，且默认开启的 trickle 规则会把同键连续变化拆到多帧，走事件队列的修正会慢一帧/失效，必须放在 `NewFrame()` 之后直接赋值）
+
+### 输入法（IME）会吞按键（实测 2026-10）
+
+中文输入法开启时，按键先被输入法处理：**数字键最容易丢**（`1/2/3` 被当作候选词选择），游戏层收不到 `KeyPressed`；
+用 `keybd_event` / `SendInput` / `PostMessage` 注入的自动化按键也可能同样被吞。表现是「脚本按了键，但角色/界面完全没反应」——
+排查输入问题时**先确认输入法与窗口焦点，再怀疑 GLFW 回调**。
+
+约定：
+
+- **任何依赖键盘的重要操作都要同时提供鼠标路径**：例 Survivors 的升级卡做成大按钮（鼠标必中），键盘 `1/2/3` 只是额外路径。
+  只给数字键/单键快捷键的流程在中文输入法下可能直接卡死，无法继续
+- 不写 `SetWindowsHookEx` / `ImmAssociateContext` 之类的抢键 hack：输入法是用户环境，游戏侧只做兼容与降级
+- 自动化验证（本仓库的测试 / 截图脚本）优先用**真实鼠标点击**：`SetCursorPos` + `mouse_event`——
+  点击本身还能把窗口带到前台，顺带解决 `PostMessage` 在非前台窗口不生效的问题；
+  必须用键盘时先 `SetForegroundWindow` 并切到英文输入法，或干脆改用鼠标
+- 中文输入法不会影响 `Input::IsKeyPressed` 对**已经到达 GLFW 的按键**的轮询；问题出在按键根本没送到应用，
+  不要为此改游戏输入逻辑（更不要换成 `WantCaptureKeyboard` 屏蔽，见「平台跳跃手感」一节）
 
 ## 代码约定
 
@@ -310,6 +329,30 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 性能参考（1600×900，RTX 5060 Ti）：云层 144 步 + 5 次光步进 + 5x5 降噪约 9~11 ms；首次进入场景需生成地形与 3D 噪声，
   约 3~4 秒（Debug 构建；Release 明显更快）
 
+## 幸存者（Survivors/）
+
+独立可执行工程（根 `CMakeLists.txt` 里的 `add_subdirectory(Survivors)`），不依赖 SandBox；只链接 `Engine`。
+
+- **玩法**：WASD 移动 + 武器自动索敌；击杀掉经验宝石，升级三选一；撑到 180 秒胜利，60/115 秒各来一只
+  「血月使徒」。四把武器（月刃 / 圣光环 / 回旋镰 / 雷暴）+ 七种被动 + 补给卡，卡池在 `BuildUpgradeOptions()`
+- **入口**：启动先进 `State::Title`（标题面板：开始游戏 / 退出游戏，Enter/空格 或点击开始），`ResetRun()` 负责开一局；
+  `OnAttach` 里 `ResetRun()` 后切 Title 并清掉开局敌人，标题画面不跑游戏逻辑、也不显示 HUD
+- **属性**：`BaseStats`（裸值，不随成长变化）与 `FinalStats`（一局内汇总后的只读快照，战斗只读这份）；
+  `RecalculateStats()` 只能读 base + 被动/武器等级，**禁止在汇总里读 final 的派生值再算另一个最终值**（会递归），
+  并带 `m_recalculatingStats` 重入保护。所有成长变化（`ApplyUpgrade`）后统一重算；暂停面板显示最终属性
+- **输入**：移动用 `Input::IsKeyPressed` 轮询；升级卡必须能用**鼠标点击**，键盘选择只是额外路径
+  （中文输入法会吞掉 1/2/3 数字键，见「输入法（IME）会吞按键」一节）
+- **ESC**：不直接退出，打开暂停菜单（继续游戏 / 重新开始 / 退出游戏），`P` 等价。
+  暂停菜单里额外用 `ImGui::IsKeyPressed` 补了一条 ESC/P 继续——菜单出现后 ImGui 可能把键盘事件标记为已处理，
+  游戏层收不到；同一按键有 2 帧宽限期（`m_pauseGuardFrames`），避免开菜单那一下立刻又关掉
+- **敌人管理**：敌人数量上限 420；用 `EnemyGrid`（96 单位空间哈希）做分离 / 索敌 / 弹丸碰撞 / 光环查询；
+  敌人离玩家超过 1400 单位会从视野外重新入场（Boss 单独按 1100 单位处理），否则玩家直线逃跑会让屏幕空掉
+- **渲染**：全部程序化顶点色网格（`SurvivorsArt`），单 shader（`u_Transform` / `u_Tint` / `u_Falloff`）；
+  正交相机跟随，900 高度基准 1:1。深度测试是 `GL_LESS`，**屏幕暗角（径向渐变网格）必须最后画**，
+  否则它会写入深度、把 z 更小的全屏闪光裁成一个椭圆
+- **每帧**显式 `Renderer::SetHDREnabled(false)` / `SetLightCullingEnabled(false)`，与 SandBox 各场景同样的约定
+- 调试：F4 面板；`output/Survivors.exe` 直接运行同样需要 MinGW 运行时 DLL 在 PATH 中
+
 
 ## 数学库（glm）
 
@@ -342,5 +385,7 @@ cmake --preset mingw-debug      # 或 mingw-release
 ## 协作习惯
 
 - 改动后做**验证**：全量构建通过 + SandBox 运行观察；可编译期验证的尽量 `static_assert`
+- 自动化验证（注入按键 / 截图）优先用**鼠标点击**而不是模拟键盘：中文输入法会吞按键，
+  见「输入法（IME）会吞按键」一节（`keybd_event` 也可能被吞，且窗口非前台时 `PostMessage` 不生效）
 - 回复用中文，结论先行，专业名词保留英文
 - 发现明显 bug 可以顺手修复并说明（用户接受「修复 + 报告」的方式）；改动保持与现有风格一致、尽量最小
