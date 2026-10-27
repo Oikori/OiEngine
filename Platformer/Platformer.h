@@ -18,7 +18,7 @@
 //   - 存档点：触碰点亮；坠落 / 扎刺回到最近的存档点（金币与用时保留），R 从头重开
 //
 // 操作：A/D 或 ←/→ 移动，空格/W/↑ 跳跃（按住跳更高），↓/S 快速下坠，R 重开，F4 手感调参
-namespace OiEngine::SandBox {
+namespace OiEngine::Platformer {
 
     // 水平跟随（带朝向前瞻与平滑）、垂直方向固定的正交相机
     class PlatformerCamera : public Camera {
@@ -47,10 +47,6 @@ namespace OiEngine::SandBox {
         void OnUpdate() override;
         void OnImGuiRender() override;
         void OnEvent(Event& event) override;
-
-        // 场景切换：未激活时跳过更新与渲染
-        void SetActive(bool active) { m_active = active; }
-        bool IsActive() const { return m_active; }
 
     private:
         // 手感参数集中管理，F4 面板直接调；单位：像素、像素/秒、像素/秒²
@@ -219,7 +215,6 @@ namespace OiEngine::SandBox {
         bool SpikeHitbox(const Spike& spike, glm::vec2& center, glm::vec2& halfSize) const;
 
         // ---- 状态 ----
-        bool m_active = true;
         GameState m_state = GameState::Playing;
         Tuning m_tuning;
 

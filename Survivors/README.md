@@ -1,6 +1,6 @@
 # 永夜幸存者（Survivors）
 
-类《吸血鬼幸存者》的俯视角自动战斗生存游戏，是继 SandBox 之后第二个引用 `Engine` 的独立可执行工程。
+类《吸血鬼幸存者》的俯视角自动战斗生存游戏，与 SandBox、Platformer 一样是引用 `Engine` 的独立可执行工程。
 全部美术都是程序化几何（顶点色网格），不依赖任何图片资源。
 
 ## 构建与运行
@@ -11,7 +11,7 @@ $cmake = 'D:\Program Files\JetBrains\CLion 2025.2.1\bin\cmake\win\x64\bin\cmake.
 & $cmake --build build/cmake-build-debug --target Survivors
 ```
 
-产物：`output/Survivors.exe`（与 SandBox 共用 `output/libEngine.dll`）。命令行直接运行需要 MinGW 运行时在 PATH 中：
+产物：`output/Survivors.exe`（与 SandBox / Platformer 共用 `output/libEngine.dll`）。命令行直接运行需要 MinGW 运行时在 PATH 中：
 
 ```powershell
 $env:PATH = "D:\Program Files\JetBrains\CLion 2025.2.1\bin\mingw\bin;$env:PATH"

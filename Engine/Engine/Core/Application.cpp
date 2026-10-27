@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "Timer.h"
+#include "Engine/Audio/Audio.h"
 #include "Engine/Renderer/Renderer.h"
 
 namespace OiEngine {
@@ -28,6 +29,8 @@ namespace OiEngine {
 	    m_layerStack.Clear();
 	    m_imguiLayer = nullptr;
 
+	    // 音频与 GL 无关，先于渲染器 / 窗口释放；层已全部 Detach，业务侧声部此时可安全回收
+	    AudioEngine::Shutdown();
 	    Renderer::Shutdown();
 	    m_window.reset();
 	}
@@ -44,6 +47,9 @@ namespace OiEngine {
 
 	    m_window = Window::Create(WindowProps(m_specification.name));
 	    m_window->SetEventCallback(OI_BIND_EVENT_FN(Application::OnEvent));
+
+	    // 音频子系统不依赖 GL / 窗口；设备初始化失败只记录错误，引擎继续静默运行
+	    AudioEngine::Init();
 
 	    Renderer::Init();
 	    // 用初始窗口尺寸设置视口（Renderer 也会记录，供阴影 pass 结束后恢复）
@@ -103,6 +109,8 @@ namespace OiEngine {
 	    Timer::Init();
 		while (m_running) {
 			ExecuteMainThreadQueue();
+			// 回收播放结束的声部；窗口最小化时也要跑，避免暂停在后台的音频句柄堆积
+			AudioEngine::Update();
 
 			if (!m_minimized) {
 			    // 固定时间步长更新：累积上一帧耗时，够一个 s_fixedDeltaTime 就补跑一次

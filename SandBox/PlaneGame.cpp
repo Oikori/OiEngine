@@ -56,6 +56,25 @@ namespace {
         return std::uniform_int_distribution<int>(min, max)(g_rng);
     }
 
+    // 运行时工作目录下的资源路径（assets 由 CMake POST_BUILD 复制到输出目录）
+    std::string AudioAssetPath(const char* fileName)
+    {
+        return std::string("assets/audio/") + fileName;
+    }
+
+    // 2D 一次性音效：Play 返回的声部由 AudioEngine 自动持有到播放结束
+    void PlayOneShot(const Ref<AudioClip>& clip, float volume, float pitch = 1.0f)
+    {
+        if (!clip) {
+            return;
+        }
+
+        AudioPlaybackSettings settings;
+        settings.volume = volume;
+        settings.pitch = pitch;
+        clip->Play(settings);
+    }
+
     // ---------- 玩家追踪导弹参数 ----------
     constexpr float MISSILE_SPEED = 600.0f;        // 巡航速度（世界单位/秒）
     constexpr float MISSILE_TURN_RATE = 3.4f;      // 最大转向角速度（弧度/秒）
@@ -383,11 +402,29 @@ void PlaneGameLayer::OnAttach()
     CreateShaders();
     CreateMeshes();
     CreateStars();
+    LoadSounds();
 
     RenderCommand::SetClearColor(glm::vec4(0.02f, 0.03f, 0.08f, 1.0f));
     ResetGame();
 
     OI_INFO("PlaneGame OnAttach");
+}
+
+void PlaneGameLayer::LoadSounds()
+{
+    if (!AudioEngine::IsInitialized()) {
+        OI_WARN("PlaneGame: audio device unavailable, sound effects disabled");
+        return;
+    }
+
+    // 音效由 SandBox/assets/audio/generate_audio.py 程序化生成；CMake 构建后复制到输出目录
+    m_shotSound = AudioEngine::LoadClip(AudioAssetPath("laser.wav"));
+    m_explosionSound = AudioEngine::LoadClip(AudioAssetPath("explosion.wav"));
+    m_pickupSound = AudioEngine::LoadClip(AudioAssetPath("pickup.wav"));
+    m_hitSound = AudioEngine::LoadClip(AudioAssetPath("hit.wav"));
+
+    AudioEngine::SetMasterVolume(m_audioVolume);
+    AudioEngine::SetMuted(m_audioMuted);
 }
 
 void PlaneGameLayer::OnDetach() {}
@@ -647,6 +684,8 @@ void PlaneGameLayer::SpawnFighterShot()
         bullet.velocity = glm::vec2(-side * wingX * 1.6f, 640.0f);
         m_entities.push_back(bullet);
     }
+
+    PlayOneShot(m_shotSound, 0.32f, RandomFloat(0.96f, 1.04f));
 }
 
 void PlaneGameLayer::SpawnFighterMissiles()
@@ -670,6 +709,8 @@ void PlaneGameLayer::SpawnFighterMissiles()
         missile.lifetime = MISSILE_LIFETIME;
         m_entities.push_back(missile);
     }
+
+    PlayOneShot(m_shotSound, 0.38f, 0.82f);
 }
 
 void PlaneGameLayer::SpawnPickup(const glm::vec2& position)
@@ -703,6 +744,8 @@ void PlaneGameLayer::SpawnPickupFlash(const glm::vec2& position)
     ring.color = glm::vec4(0.70f, 0.95f, 1.0f, 1.0f);
     ring.thickness = 3.0f;
     m_effects.push_back(ring);
+
+    PlayOneShot(m_pickupSound, 0.45f, 1.0f);
 }
 
 void PlaneGameLayer::SpawnEnemyShot(const Entity& enemy)
@@ -805,6 +848,7 @@ void PlaneGameLayer::SpawnExplosion(const glm::vec2& position, const glm::vec4& 
 void PlaneGameLayer::SpawnPlayerDeath(const glm::vec2& position)
 {
     SpawnExplosion(position, glm::vec4(0.40f, 0.85f, 1.00f, 1.0f), 80.0f, true);
+    PlayOneShot(m_explosionSound, 0.65f, 0.72f);
 
     Effect ring;
     ring.kind = EffectKind::Ring;
@@ -844,6 +888,7 @@ void PlaneGameLayer::KillEnemy(uint32_t index)
 
     const bool large = enemy.kind == EntityKind::EnemyC;
     SpawnExplosion(enemy.position, color, enemy.radius, large);
+    PlayOneShot(m_explosionSound, large ? 0.55f : 0.28f, RandomFloat(0.88f, 1.05f));
 
     // 大型敌机被击毁后掉落导弹补给
     if (large) {
@@ -879,6 +924,7 @@ void PlaneGameLayer::HitPlayer()
     m_combo = 1;
     m_comboTimer = 0.0f;
     SpawnExplosion(m_playerPosition, PLAYER_FLAME, 50.0f, false);
+    PlayOneShot(m_hitSound, 0.50f, RandomFloat(0.95f, 1.05f));
 
     // 清除附近的敌方子弹，给玩家一点喘息空间
     for (auto it = m_entities.begin(); it != m_entities.end();) {
@@ -1561,7 +1607,7 @@ void PlaneGameLayer::RenderHud()
         if (ImGui::Begin("Hint", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                                            ImGuiWindowFlags_NoInputs)) {
-            ImGui::Text("WASD / 方向键移动 · 按住空格自动开火 · P 暂停 · F1/F2/F3 切换场景 · F4 调试");
+            ImGui::Text("WASD / 方向键移动 · 按住空格自动开火 · P 暂停 · F1/F2/F5/F6/F7 切换场景 · F4 调试");
         }
         ImGui::End();
         ImGui::PopStyleColor(2);
@@ -1578,6 +1624,27 @@ void PlaneGameLayer::RenderHud()
             ImGui::Text("实体 %d", static_cast<int>(m_entities.size()));
             ImGui::Text("特效 %d", static_cast<int>(m_effects.size()));
             ImGui::Text("玩家 (%.0f, %.0f)  无敌 %.2f", m_playerPosition.x, m_playerPosition.y, m_invulnerable);
+            ImGui::Separator();
+            ImGui::Text("音频");
+            if (!AudioEngine::IsInitialized()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "音频设备未初始化");
+            } else {
+                if (ImGui::Checkbox("静音", &m_audioMuted)) {
+                    AudioEngine::SetMuted(m_audioMuted);
+                }
+                ImGui::SameLine();
+                if (ImGui::SliderFloat("主音量", &m_audioVolume, 0.0f, 1.0f, "%.2f")) {
+                    AudioEngine::SetMasterVolume(m_audioVolume);
+                }
+                if (ImGui::Button("测试音效")) {
+                    PlayOneShot(m_shotSound, 0.40f, 1.0f);
+                    PlayOneShot(m_pickupSound, 0.35f, 1.0f);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("测试爆炸")) {
+                    PlayOneShot(m_explosionSound, 0.50f, 1.0f);
+                }
+            }
             ImGui::Separator();
             if (ImGui::Button("重新开始")) {
                 ResetGame();

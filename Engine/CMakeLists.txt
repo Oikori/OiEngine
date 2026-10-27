@@ -33,6 +33,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     spdlog
     stb_image
     imgui
+    miniaudio
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
     glm

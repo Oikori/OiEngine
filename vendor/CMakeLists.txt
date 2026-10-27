@@ -8,6 +8,19 @@ add_subdirectory(glfw)
 add_subdirectory(spdlog)
 add_subdirectory(stb_image)
 
+# miniaudio：单头文件音频库。实现单独编译为静态库，避免每个包含者重复解析 4MB 头文件。
+# 上游文件保持原样（miniaudio.h / miniaudio.c），实现宏只出现在 miniaudio.c 中。
+add_library(miniaudio STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/miniaudio/miniaudio.c
+)
+target_include_directories(miniaudio PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/miniaudio
+)
+if (WIN32)
+    # WASAPI / WinMM 后端所需的系统库
+    target_link_libraries(miniaudio PUBLIC ole32 winmm)
+endif()
+
 # Dear ImGui：源码位于 submodule（vendor/imgui，上游不提供 CMakeLists），
 # 构建定义保留在主仓库（submodule 目录内的文件不受版本控制）
 # 编译为 OBJECT 库整体并入 Engine.dll：IMGUI_API/IMGUI_IMPL_API 定义为 dllexport，

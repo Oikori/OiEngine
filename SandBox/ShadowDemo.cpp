@@ -638,7 +638,7 @@ void ShadowDemoLayer::OnImGuiRender()
 
     ImGui::Separator();
     ImGui::Checkbox("Show ImGui demo window", &m_showDemoWindow);
-    ImGui::TextDisabled("F1 飞机大战  F2 太阳系  F3 平台跳跃  F5 阴影演示");
+    ImGui::TextDisabled("F1 飞机大战  F2 太阳系  F5 阴影演示");
     ImGui::End();
 
     if (m_showShadowMap) {

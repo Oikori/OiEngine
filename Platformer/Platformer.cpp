@@ -13,7 +13,7 @@
 #include "Engine/Events/KeyEvent.h"
 
 using namespace OiEngine;
-using namespace OiEngine::SandBox;
+using namespace OiEngine::Platformer;
 
 namespace {
 
@@ -1123,12 +1123,7 @@ void PlatformerLayer::UpdateCamera(float deltaTime)
 
 void PlatformerLayer::OnUpdate()
 {
-    if (!m_active) {
-        return;
-    }
-
-    // 本场景为非 HDR 路径：显式声明引擎全局渲染状态，
-    // 否则从 HDR 场景（F5 阴影演示 / F6 室内多光源）切过来会残留 HDR 开关（颜色被二次 tonemap → 整体泛白）
+    // 独立项目：显式关闭 HDR 与光源剔除，保持 2D 非 HDR 渲染路径
     Renderer::SetHDREnabled(false);
     Renderer::SetLightCullingEnabled(false);
 
@@ -1531,18 +1526,11 @@ void PlatformerLayer::RenderHud()
 
 void PlatformerLayer::OnImGuiRender()
 {
-    if (!m_active) {
-        return;
-    }
     RenderHud();
 }
 
 void PlatformerLayer::OnEvent(Event& event)
 {
-    if (!m_active) {
-        return;
-    }
-
     if (event.GetEventType() != EventType::KeyPressed) {
         return;
     }

@@ -9,14 +9,19 @@ add_executable(${PROJECT_NAME}
     ShadowDemo.cpp
     IndoorDemo.cpp
     VolumetricCloudDemo.cpp
-    Platformer/Platformer.cpp
 )
-
-# 子目录（如 Platformer/）里的源文件也需要能找到 SandBox 根目录下的公共头（RenderHelpers.h 等）
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/output
+)
+
+# 资源目录随可执行文件一起部署：业务代码按当前工作目录读取 "assets/..."（例如 assets/audio/laser.wav）
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
+    COMMENT "Copying SandBox assets to $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
+    VERBATIM
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE

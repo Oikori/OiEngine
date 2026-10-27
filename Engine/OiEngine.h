@@ -3,6 +3,8 @@
 #include "Engine/Core/Application.h"
 #include "Engine/Core/Timer.h"
 
+#include "Engine/Audio/Audio.h"
+
 #include "Engine/Math.h"
 
 #include "Engine/Renderer/Buffer.h"

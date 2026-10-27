@@ -109,6 +109,7 @@ namespace OiEngine::SandBox {
         void CreateShaders();
         void CreateMeshes();
         void CreateStars();
+        void LoadSounds();
         Ref<VertexArray> CreateDynamicVertexArray(uint32_t maxVertices, uint32_t indexCount);
 
         // ---- 游戏流程 ----
@@ -199,6 +200,14 @@ namespace OiEngine::SandBox {
 
         std::vector<Entity> m_entities;
         std::vector<Effect> m_effects;
+
+        // 音频资源（SandBox/assets/audio 下的程序化生成 wav）
+        Ref<AudioClip> m_shotSound;
+        Ref<AudioClip> m_explosionSound;
+        Ref<AudioClip> m_pickupSound;
+        Ref<AudioClip> m_hitSound;
+        float m_audioVolume = 0.8f;
+        bool m_audioMuted = false;
 
         // 调试
         bool m_showDebug = false;
