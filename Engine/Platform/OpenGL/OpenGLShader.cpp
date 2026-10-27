@@ -13,6 +13,8 @@ namespace OiEngine {
 				return GL_VERTEX_SHADER;
 			if (type == "fragment" || type == "pixel")
 				return GL_FRAGMENT_SHADER;
+			if (type == "compute")
+				return GL_COMPUTE_SHADER;
 
 			OI_ASSERT(false, "Unknown shader type!");
 			return 0;
@@ -113,6 +115,8 @@ namespace OiEngine {
 	{
 		std::string source = ReadFile(filepath);
 		auto shaderSources = PreProcess(source);
+		// 文件里只写了 #type compute 时，这个程序就是计算着色器（可 Dispatch）
+		m_isCompute = shaderSources.find(GL_COMPUTE_SHADER) != shaderSources.end();
 
 	    std::vector<unsigned int> shaders;
 	    bool err = false;

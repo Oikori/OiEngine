@@ -15,6 +15,7 @@
 | 文档 | 内容 |
 |---|---|
 | [渲染基础](docs/渲染基础.md) | 2D 场景 z 约定、相机 UBO（binding = 0） |
+| [着色器](docs/着色器.md) | 各工程 `assets/shader/` 的组织、`#type` 分段、加载与构建复制 |
 | [光照与后处理](docs/光照与后处理.md) | 光照 SSBO、Forward+ cluster 剔除、HDR、IBL、IndoorDemo 参考实现 |
 | [阴影](docs/阴影.md) | 方向光 ShadowMap、聚光灯 ShadowMapArray、采样与 bias |
 | [体积云](docs/体积云.md) | VolumetricCloudDemo 的地形 / 云层 / 管线 / 参数 |
@@ -50,11 +51,13 @@
   - 新增 `.cpp` 要同时加进 `SandBox/CMakeLists.txt`（SandBox 是显式源文件列表；`Engine/` 是 GLOB_RECURSE，
     新增引擎源文件只需重跑 `cmake --preset mingw-debug`）
 - `Platformer/` — 从 SandBox 拆出的独立平台跳跃工程：`main.cpp` + `Platformer.*` + 本地 `RenderHelpers.h`
-  + `assets/audio`（程序化 BGM / 音效，构建后复制到 `output/assets`）
+  + `assets/audio`（程序化 BGM / 音效）+ `assets/shader`（平台跳跃着色器 + 引擎 shader 副本，均复制到 `output/assets`）
   （多段式关卡 + 移动平台 + 尖刺陷阱 + 存档点；见 [平台跳跃](docs/平台跳跃.md)）
 - `Survivors/` — 独立可执行工程：类《吸血鬼幸存者》俯视角生存游戏
   （产物 `output/Survivors.exe`，源码只有 `main.cpp` + `SurvivorsGame.*` + `SurvivorsArt.*`；见 [幸存者](docs/幸存者.md)）
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm、miniaudio（glfw/spdlog/imgui/glm 登记为 git submodule；miniaudio 单头源码直接入库）
+- 各可执行工程的 `assets/shader/` — 该工程用到的全部 GLSL（`engine/` 引擎 4 个 + `scenes/` 自己的场景），
+  随各自 `assets/` 复制到 `output/assets/`；引擎 shader 在每个工程各存一份（改动需同步），约定见 [着色器](docs/着色器.md)
 - `test/` — 原数学库验证用例已删除（详见 `test/README.md`）；不参与 CMake，被 .gitignore 忽略
 - `output/`、`build/` — 构建产物，不入库
 
@@ -70,8 +73,8 @@ cmake --build build/cmake-build-debug
 cmake --preset mingw-debug      # 或 mingw-release
 ```
 
-- 产物在 `output/`：`libEngine.dll`、`SandBox.exe`、`Platformer.exe`、`Survivors.exe`；SandBox / Platformer 的 `assets/`
-  由各自的 CMake `POST_BUILD` 复制到 `output/assets/`，资源按运行时工作目录读取（在 `output/` 启动）
+- 产物在 `output/`：`libEngine.dll`、`SandBox.exe`、`Platformer.exe`、`Survivors.exe`；SandBox / Platformer / Survivors 的
+  `assets/`（音频 + `shader/`）由各自的 CMake `POST_BUILD` 复制到 `output/assets/`，资源按运行时工作目录读取（在 `output/` 启动）
 - 命令行直接运行 `output/SandBox.exe` 需要 MinGW 运行时 DLL 在 PATH 中（否则秒退无输出）：
   `$env:PATH = "D:\Program Files\JetBrains\CLion 2025.2.1\bin\mingw\bin;$env:PATH"`；CLion 运行配置会自动处理
 - 编译器路径记录在 `build/cmake-build-debug/CMakeCache.txt`（当前为 CLion 自带 MinGW GCC 15）
