@@ -48,10 +48,15 @@ namespace OiEngine::Survivors {
         enum class State { Title, Playing, LevelUp, Paused, GameOver, Victory };
         enum class EnemyType { Bat = 0, Ghoul, Wraith, Brute, Boss, Count };
         enum class WeaponId { MoonBlade = 0, Aura, Scythe, Storm, Count };
-        enum class PassiveId { Might = 0, Haste, Swift, Vitality, Magnet, Luck, Regen, Count };
+        enum class PassiveId { Might = 0, Haste, Swift, Vitality, Magnet, Luck, Regen, Bulwark, Sunder, Count };
         enum class ShotKind { Blade, Scythe };
         enum class FxKind { Ring, Flash, Bolt };
         enum class UpgradeKind { Weapon, Passive, Heal };
+        // 音效槽：顺序与 cpp 里的 SFX_FILES / SFX_VOLUME / SFX_THROTTLE 一致
+        enum class SfxId {
+            Blade = 0, Storm, Hit, Kill, Pickup, LevelUp, Hurt,
+            StageClear, BossSpawn, Victory, GameOver, Count
+        };
 
         struct Enemy {
             EnemyType type = EnemyType::Bat;
@@ -67,6 +72,8 @@ namespace OiEngine::Survivors {
             float phase = 0.0f;
             float hitFlash = 0.0f;
             int xp = 1;
+            // 怪物只有防御（没有穿甲）：防御是固定值，减伤率 = 防御 / (防御 + 100)
+            float defense = 0.0f;
             bool alive = true;
             uint32_t id = 0;
         };
@@ -173,12 +180,21 @@ namespace OiEngine::Survivors {
         // ---- 初始化 ----
         void CreateShaders();
         void ResetRun();
+        void ReturnToTitle();   // 清局并切回标题界面（结算窗口的「回到标题」也用它）
         void InitWisps();
+
+        // ---- 音频（Survivors/assets/audio，构建后复制到输出目录）----
+        void LoadAudio();
+        void EnsureBgm(bool boss);                       // 切换 / 恢复 当前场景该放的那首
+        void PlaySfx(SfxId id, float volumeScale = 1.0f, float pitch = 1.0f);
+        void UpdateSfxThrottle(float deltaTime);
+        void ApplyBgmVolume();                           // 设置面板改背景音乐音量时，实时作用到正在播的声部
 
         // ---- 更新 ----
         void UpdateGame(float deltaTime);
         void UpdatePlayer(float deltaTime);
         void UpdateEnemySpawning(float deltaTime);
+        void AdvanceStage();
         void UpdateEnemies(float deltaTime);
         void UpdateWeapons(float deltaTime);
         void UpdateProjectiles(float deltaTime);
@@ -234,6 +250,8 @@ namespace OiEngine::Survivors {
         void DrawScreenOverlay();
         void RenderTitle();
         void RenderHud();
+        void RenderHelp();
+        void RenderOptions();
         void RenderLevelUp();
         void RenderPause();
         void RenderGameOver();
@@ -245,24 +263,11 @@ namespace OiEngine::Survivors {
         int RandInt(int minValue, int maxValue);
 
         // ---- 属性模型 ----
-        // 基础属性：开局裸数值，不随祝福/武器变化。
-        // 以后做「按基础值的百分比」类词条只能读这里。
+        // 基础属性：一局内唯一的属性数据，战斗与 UI 都只读这一份。
+        // 升级（被动）**直接累加**到这里，不再在汇总时按被动等级乘算；
+        // 因此这里的值 = 开局裸值 + 全部成长，ResetRun() 会重置回 BARE_STATS。
         struct BaseStats {
-            float maxHp = 120.0f;
-            float moveSpeed = 240.0f;
-            float damageMul = 1.0f;
-            float attackSpeedMul = 1.0f;
-            float critChance = 0.05f;
-            float pickupRadius = 220.0f;
-            float regenPerSecond = 0.0f;
-        };
-
-        // 最终属性：一局内所有成长汇总后的只读快照，战斗只读这一份。
-        // 规则：RecalculateStats() 内只能读 m_baseStats 与被动/武器等级；
-        //      禁止在汇总过程中读 m_finalStats 的派生值再去算另一个最终值（会形成递归依赖）。
-        //      汇总函数带了重入保护 m_recalculatingStats。
-        struct FinalStats {
-            float maxHp = 120.0f;
+            float maxHp = 20.0f;          // 初始生命值（体魄每级 +8，血之祭回复 35%）
             float moveSpeed = 240.0f;
             float damageMul = 1.0f;
             float attackSpeedMul = 1.0f;
@@ -270,17 +275,21 @@ namespace OiEngine::Survivors {
             float pickupRadius = 220.0f;
             float regenPerSecond = 0.0f;
 
-            FinalStats() = default;
-            // 汇总起点：最终值从基础值拷贝，再叠加成长
-            explicit FinalStats(const BaseStats& base)
-                : maxHp(base.maxHp), moveSpeed(base.moveSpeed), damageMul(base.damageMul),
-                  attackSpeedMul(base.attackSpeedMul), critChance(base.critChance),
-                  pickupRadius(base.pickupRadius), regenPerSecond(base.regenPerSecond) {}
+            // 防御只有固定值：减伤率 = 防御 / (防御 + 100)（100 点 = 50% 减伤，趋近但永不到 100%）。
+            // 穿甲分两档，都作用在对方的防御值上：百分比穿甲先按比例削，固定穿甲再扣点（不穿成负数）。
+            float defense = 0.0f;           // 防御（点）
+            float penFlat = 0.0f;           // 固定穿甲（点）
+            float penPercent = 0.0f;        // 百分比穿甲（0~1）
         };
 
+        // 开局裸值：ResetRun 重置成它；百分比型成长（移速 / 拾取半径）的每级步长也按它的比例给，
+        // 这样 5 级累计仍是线性加成，不会随当前值复利膨胀。（定义在 SurvivorsGame.cpp）
+        static const BaseStats BARE_STATS;
+
+        // 成长写进基础属性后调用：同步生命上限并钳制当前血量（不做任何乘算）
         void RecalculateStats();
 
-        // ---- 平衡数值（全部读最终属性快照） ----
+        // ---- 平衡数值（全部读基础属性） ----
         float DamageMul() const;
         float AttackSpeedMul() const;
         float CritChance() const;
@@ -304,16 +313,14 @@ namespace OiEngine::Survivors {
         float m_halfWidth = 800.0f;
         float m_halfHeight = 450.0f;
 
-        // 属性：基础值 + 每局汇总出来的最终值
+        // 属性：开局裸值 + 升级累加，战斗与 UI 只读这一份
         BaseStats m_baseStats;
-        FinalStats m_finalStats;
-        bool m_recalculatingStats = false;   // RecalculateStats 重入保护
 
         // 玩家
         glm::vec2 m_playerPosition{ 0.0f, 0.0f };
         glm::vec2 m_playerVelocity{ 0.0f, 0.0f };
-        float m_playerHp = 120.0f;
-        float m_playerMaxHp = 120.0f;
+        float m_playerHp = 20.0f;
+        float m_playerMaxHp = 20.0f;
         float m_hurtCooldown = 0.0f;
         float m_walkPhase = 0.0f;
         float m_hurtFlash = 0.0f;
@@ -345,7 +352,13 @@ namespace OiEngine::Survivors {
         int m_kills = 0;
         float m_damageDealt = 0.0f;
         float m_shake = 0.0f;
-        float m_bossWarning = 0.0f;
+
+        // 关卡：10 关，第 1 关 30 秒、之后每关 +5 秒，只有第 5 / 10 关有 Boss
+        int m_stage = 1;
+        float m_stageTime = 0.0f;        // 本关已存活时间
+        float m_stageDuration = 30.0f;   // 本关总时长
+        float m_stageBanner = 0.0f;      // 进关横幅剩余时间
+        bool m_stageBannerBoss = false;  // 本关有 Boss（横幅换成血月配色）
 
         // 冷却
         float m_bladeCooldown = 0.0f;
@@ -355,10 +368,6 @@ namespace OiEngine::Survivors {
 
         // 刷怪
         float m_spawnTimer = 0.0f;
-        float m_nextBossTime = 60.0f;
-        int m_bossesSpawned = 0;
-        bool m_bossAlive = false;
-        uint32_t m_bossId = 0;
 
         // 相机
         glm::vec2 m_cameraFocus{ 0.0f, 0.0f };
@@ -373,5 +382,20 @@ namespace OiEngine::Survivors {
         std::vector<Wisp> m_wisps;
 
         bool m_showDebug = false;
+        bool m_showHelp = false;      // 帮助面板（标题页 / 暂停菜单里打开，ESC 关闭）
+        bool m_showOptions = false;   // 设置面板（音量：主音量 / 背景音乐 / 音效）
+
+        // 音频：BGM 常驻循环，Boss 关切换到另一首；音效按槽位节流
+        std::array<Ref<AudioClip>, static_cast<int>(SfxId::Count)> m_sfxClips;
+        std::array<float, static_cast<int>(SfxId::Count)> m_sfxThrottle{};
+        Ref<AudioClip> m_bgmClip;
+        Ref<AudioClip> m_bgmBossClip;
+        Ref<SoundInstance> m_bgm;
+        bool m_bgmIsBoss = false;    // 当前在放的是否 Boss 曲
+        // 音量分三级：主音量走 AudioEngine，BGM / 音效是各自的分组系数（引擎没有总线，这里在应用层乘）
+        float m_masterVolume = 0.85f;
+        float m_bgmVolume = 0.80f;
+        float m_sfxVolume = 0.90f;
+        bool m_audioMuted = false;
     };
 }

@@ -40,12 +40,28 @@ namespace {
 
     constexpr float TAU = 2.0f * PI;
     constexpr float VIEW_HALF_HEIGHT = 450.0f;
-    constexpr float VICTORY_TIME = 180.0f;
     constexpr int MAX_ENEMIES = 420;
     constexpr int MAX_PARTICLES = 700;
     constexpr int MAX_GEMS = 600;
     constexpr int MAX_DAMAGE_NUMBERS = 48;
     constexpr float PLAYER_RADIUS = 20.0f;
+
+    // 关卡节奏：10 关，第 1 关存活 30 秒，之后每关 +5 秒（共 525 秒）；
+    // 只有第 5 / 10 关有 Boss，怪物数值随关卡递增（见 SpawnEnemy）
+    constexpr int STAGE_COUNT = 10;
+    constexpr float STAGE_BASE_DURATION = 30.0f;
+    constexpr float STAGE_DURATION_STEP = 5.0f;
+    constexpr int BOSS_STAGES[2] = { 5, 10 };
+
+    float StageDuration(int stage)
+    {
+        return STAGE_BASE_DURATION + STAGE_DURATION_STEP * static_cast<float>(stage - 1);
+    }
+
+    bool HasBossStage(int stage)
+    {
+        return stage == BOSS_STAGES[0] || stage == BOSS_STAGES[1];
+    }
 
     const glm::vec4 WHITE(1.0f, 1.0f, 1.0f, 1.0f);
     const glm::vec4 C_BLADE(0.62f, 0.92f, 1.00f, 1.0f);
@@ -111,22 +127,59 @@ namespace {
         float radius;
         float damage;
         int xp;
+        float defense;
     };
 
-    // 敌人速度普遍接近（略低于）玩家，围上来之后就不容易被一条直线甩掉
+    // 敌人速度普遍接近（略低于）玩家，围上来之后就不容易被一条直线甩掉。
+    // 怪物只有防御（没有穿甲）：防御是固定值，减伤率 = 防御 / (防御 + 100)
+    // （5 → 4.8%，12 → 10.7%，25 → 20%，40 → 28.6%），破甲按点数 / 按比例削它
     constexpr EnemyTuning ENEMY_TUNING[5] = {
-        { 10.0f, 238.0f, 15.0f, 2.0f, 2 },      // 蝙蝠
-        { 28.0f, 188.0f, 19.0f, 3.0f, 4 },      // 食尸鬼
-        { 44.0f, 228.0f, 22.0f, 4.0f, 6 },      // 怨灵
-        { 130.0f, 158.0f, 31.0f, 6.0f, 14 },    // 石魔
-        { 400.0f, 300.0f, 46.0f, 10.0f, 100 },  // 血月使徒
+        { 10.0f, 238.0f, 15.0f, 2.0f, 2, 0.0f },       // 蝙蝠
+        { 28.0f, 188.0f, 19.0f, 3.0f, 4, 5.0f },       // 食尸鬼
+        { 44.0f, 228.0f, 22.0f, 4.0f, 6, 12.0f },      // 怨灵
+        { 130.0f, 158.0f, 31.0f, 6.0f, 14, 25.0f },    // 石魔
+        { 400.0f, 300.0f, 46.0f, 10.0f, 100, 40.0f },  // 血月使徒
     };
 
     const char* const WEAPON_NAMES[4] = { "月刃", "圣光环", "回旋镰", "雷暴" };
     const glm::vec4 WEAPON_COLORS[4] = { C_BLADE, C_AURA, C_SCYTHE, C_STORM };
-    const char* const PASSIVE_NAMES[7] = { "力量", "急速", "疾行", "体魄", "磁石", "幸运", "回春" };
-    const int PASSIVE_MAX[7] = { 5, 5, 5, 5, 3, 5, 5 };
+    const char* const PASSIVE_NAMES[9] = { "力量", "急速", "疾行", "体魄", "磁石", "幸运", "回春", "铁壁", "破甲" };
+    const int PASSIVE_MAX[9] = { 5, 5, 5, 5, 3, 5, 5, 5, 5 };
     const char* const ROMAN[6] = { "", "I", "II", "III", "IV", "V" };
+
+    // 防御换减伤率：防御 / (防御 + 100)。100 点 = 50%，只会趋近 100%，所以不需要减伤保底
+    float DefenseReduction(float defense)
+    {
+        const float clamped = std::max(0.0f, defense);
+        return clamped / (clamped + 100.0f);
+    }
+
+    // 伤害结算（攻防两端共用）：
+    //   1) 穿甲先削对方的防御值——百分比穿甲按比例削，固定穿甲再扣点（扣到 0 为止）；
+    //   2) 剩下的防御进 防御/(防御+100) 换成减伤率，再乘到伤害上。
+    float ResolveDamage(float raw, float penFlat, float penPercent, float defense)
+    {
+        const float effectiveDefense = defense * (1.0f - std::clamp(penPercent, 0.0f, 1.0f)) - penFlat;
+        return raw * (1.0f - DefenseReduction(effectiveDefense));
+    }
+
+    // ---- 音频表：顺序必须与 SurvivorsLayer::SfxId 完全一致 ----
+    constexpr const char* SFX_FILES[] = {
+        "blade.wav", "storm.wav", "hit.wav", "kill.wav", "pickup.wav",
+        "levelup.wav", "hurt.wav", "stage_clear.wav", "boss_spawn.wav",
+        "victory.wav", "gameover.wav",
+    };
+    // 基准音量：高频事件压低，关键事件抬高
+    constexpr float SFX_VOLUME[] = {
+        0.30f, 0.45f, 0.18f, 0.32f, 0.26f, 0.55f, 0.55f, 0.58f, 0.72f, 0.66f, 0.66f,
+    };
+    // 同一音效的最小间隔（秒）：命中 / 击杀 / 拾取一秒能触发几十次，全靠它压住
+    constexpr float SFX_THROTTLE[] = {
+        0.06f, 0.12f, 0.045f, 0.05f, 0.04f, 0.20f, 0.25f, 0.50f, 0.50f, 1.00f, 1.00f,
+    };
+
+    constexpr float BGM_VOLUME = 0.34f;
+    constexpr float BGM_BOSS_VOLUME = 0.38f;
 
     float Length(const glm::vec2& v)
     {
@@ -165,6 +218,12 @@ namespace {
         return std::format("{:02d}:{:02d}", total / 60, total % 60);
     }
 }
+
+// ============================ 属性 ============================
+
+// BaseStats 是嵌套类型：GCC 不允许在类内用默认成员初始值初始化 constexpr 静态成员，
+// 因此这里在类外给出唯一一份定义（类内只声明）。
+const SurvivorsLayer::BaseStats SurvivorsLayer::BARE_STATS{};
 
 // ============================ 相机 ============================
 
@@ -214,26 +273,129 @@ void SurvivorsLayer::OnAttach()
 {
     CreateShaders();
     m_art.Load();
+    LoadAudio();
     RenderCommand::SetClearColor(glm::vec4(0.030f, 0.028f, 0.062f, 1.0f));
+    ReturnToTitle();
+    OI_INFO("Survivors OnAttach: 永夜幸存者已启动");
+}
+
+void SurvivorsLayer::ReturnToTitle()
+{
+    // ResetRun 会重置关卡 / 属性 / 音频并刷开局蝙蝠；标题画面不跑游戏逻辑，
+    // 所以接着切 Title 并把刚刷出来的敌人与残留特效清掉
     ResetRun();
-    // 启动先进标题界面；ResetRun 会刷开局蝙蝠，这里清掉，让标题画面保持干净
     m_state = State::Title;
     m_enemies.clear();
+    m_projectiles.clear();
     m_gems.clear();
     m_particles.clear();
     m_effects.clear();
+    m_damageNumbers.clear();
     m_grid.cells.clear();
-    OI_INFO("Survivors OnAttach: 永夜幸存者已启动");
+    EnsureBgm(false);
+    OI_INFO("Survivors: 标题界面就绪");
 }
 
 void SurvivorsLayer::OnDetach()
 {
+    if (m_bgm) {
+        m_bgm->Stop();
+        m_bgm.reset();
+    }
     m_art.Unload();
 }
 
 void SurvivorsLayer::CreateShaders()
 {
     m_shader = Shader::Create("assets/shader/scenes/survivors.glsl");
+}
+
+// ============================ 音频 ============================
+
+void SurvivorsLayer::LoadAudio()
+{
+    if (!AudioEngine::IsInitialized()) {
+        OI_WARN("Survivors: 音频设备不可用，本局静音");
+        return;
+    }
+
+    m_bgmClip = AudioEngine::LoadClip("assets/audio/bgm.wav", /*streaming=*/true);
+    m_bgmBossClip = AudioEngine::LoadClip("assets/audio/bgm_boss.wav", /*streaming=*/true);
+    for (int i = 0; i < static_cast<int>(SfxId::Count); ++i) {
+        m_sfxClips[i] = AudioEngine::LoadClip(std::string("assets/audio/") + SFX_FILES[i]);
+        m_sfxThrottle[i] = 0.0f;
+    }
+
+    AudioEngine::SetMasterVolume(m_masterVolume);
+    AudioEngine::SetMuted(m_audioMuted);
+    OI_INFO("Survivors: 音频资源加载完成（2 首 BGM + {} 个音效）", static_cast<int>(SfxId::Count));
+}
+
+void SurvivorsLayer::EnsureBgm(bool boss)
+{
+    if (!AudioEngine::IsInitialized()) {
+        return;
+    }
+    // 已经在放同一首：只负责恢复（暂停 / 过关后接着放），不重新起播
+    if (m_bgm && !m_bgm->IsFinished() && m_bgmIsBoss == boss) {
+        if (!m_bgm->IsPlaying()) {
+            m_bgm->Resume();
+        }
+        return;
+    }
+
+    const Ref<AudioClip>& clip = boss ? m_bgmBossClip : m_bgmClip;
+    if (!clip) {
+        return;
+    }
+    if (m_bgm) {
+        m_bgm->Stop();
+        m_bgm.reset();
+    }
+
+    AudioPlaybackSettings settings;
+    settings.volume = (boss ? BGM_BOSS_VOLUME : BGM_VOLUME) * m_bgmVolume;
+    settings.looping = true;
+    m_bgm = clip->Play(settings);
+    m_bgmIsBoss = boss;
+    OI_INFO("Survivors: BGM 切换到{}", boss ? "血月使徒曲" : "主曲");
+}
+
+void SurvivorsLayer::ApplyBgmVolume()
+{
+    if (m_bgm) {
+        m_bgm->SetVolume((m_bgmIsBoss ? BGM_BOSS_VOLUME : BGM_VOLUME) * m_bgmVolume);
+    }
+}
+
+void SurvivorsLayer::PlaySfx(SfxId id, float volumeScale, float pitch)
+{
+    if (!AudioEngine::IsInitialized()) {
+        return;
+    }
+    const int index = static_cast<int>(id);
+    if (index < 0 || index >= static_cast<int>(SfxId::Count)) {
+        return;
+    }
+    if (!m_sfxClips[index]) {
+        return;
+    }
+    if (m_sfxThrottle[index] > 0.0f) {
+        return;   // 同一种音效还没过冷却，直接丢
+    }
+    m_sfxThrottle[index] = SFX_THROTTLE[index];
+
+    AudioPlaybackSettings settings;
+    settings.volume = SFX_VOLUME[index] * volumeScale * m_sfxVolume;
+    settings.pitch = pitch > 0.0f ? pitch : 1.0f;
+    m_sfxClips[index]->Play(settings);
+}
+
+void SurvivorsLayer::UpdateSfxThrottle(float deltaTime)
+{
+    for (float& timer : m_sfxThrottle) {
+        timer = std::max(0.0f, timer - deltaTime);
+    }
 }
 
 void SurvivorsLayer::InitWisps()
@@ -265,16 +427,26 @@ void SurvivorsLayer::ResetRun()
     m_kills = 0;
     m_damageDealt = 0.0f;
     m_shake = 0.0f;
-    m_bossWarning = 0.0f;
+
+    // 关卡：回到第 1 关（30 秒），横幅提示开场
+    m_stage = 1;
+    m_stageTime = 0.0f;
+    m_stageDuration = StageDuration(m_stage);
+    m_stageBanner = 2.2f;
+    m_stageBannerBoss = false;
+    m_showHelp = false;
+    m_showOptions = false;
+
+    // 新一局：音效冷却清零，BGM 回到主曲（从 Boss 曲切回来时也走这里）
+    m_sfxThrottle.fill(0.0f);
+    EnsureBgm(false);
 
     m_playerPosition = glm::vec2(0.0f, 0.0f);
     m_playerVelocity = glm::vec2(0.0f, 0.0f);
 
-    // 属性：先回到基础值、清零被动，再汇总一次得到本局的初始最终属性
-    m_baseStats = BaseStats{};
+    // 属性：回到开局裸值、清零被动，再同步一次生命上限
+    m_baseStats = BARE_STATS;
     m_passive = { 0, 0, 0, 0, 0, 0, 0 };
-    m_finalStats = FinalStats{};
-    m_recalculatingStats = false;
     m_playerHp = 0.0f;          // 避免 RecalculateStats 里的 clamp 读到上一局的血量
     RecalculateStats();
     m_playerHp = m_playerMaxHp;
@@ -307,10 +479,6 @@ void SurvivorsLayer::ResetRun()
     m_stormCooldown = 0.0f;
 
     m_spawnTimer = 0.6f;
-    m_nextBossTime = 60.0f;
-    m_bossesSpawned = 0;
-    m_bossAlive = false;
-    m_bossId = 0;
 
     m_cameraFocus = m_playerPosition;
     InitWisps();
@@ -340,62 +508,39 @@ int SurvivorsLayer::RandInt(int minValue, int maxValue)
 
 void SurvivorsLayer::RecalculateStats()
 {
-    // 重入保护：属性汇总里如果又去读「最终属性」并触发重算，会形成递归。
-    // 正确做法是只读 m_baseStats + 被动/武器等级，一次性算出 FinalStats。
-    if (m_recalculatingStats) {
-        OI_ERROR("Survivors: RecalculateStats 重入，忽略本次调用（属性汇总不能引用最终属性）");
-        return;
-    }
-    m_recalculatingStats = true;
-
-    const auto level = [this](PassiveId id) {
-        return static_cast<float>(m_passive[static_cast<int>(id)]);
-    };
-
-    FinalStats stats(m_baseStats);
-    stats.maxHp = m_baseStats.maxHp + 25.0f * level(PassiveId::Vitality);
-    stats.moveSpeed = m_baseStats.moveSpeed * (1.0f + 0.07f * level(PassiveId::Swift));
-    stats.damageMul = m_baseStats.damageMul * (1.0f + 0.12f * level(PassiveId::Might));
-    stats.attackSpeedMul = m_baseStats.attackSpeedMul * (1.0f + 0.10f * level(PassiveId::Haste));
-    stats.critChance = m_baseStats.critChance + 0.06f * level(PassiveId::Luck);
-    stats.pickupRadius = m_baseStats.pickupRadius * (1.0f + 0.35f * level(PassiveId::Magnet));
-    stats.regenPerSecond = m_baseStats.regenPerSecond + 0.4f * level(PassiveId::Regen);
-
-    m_finalStats = stats;
-    m_playerMaxHp = m_finalStats.maxHp;
+    // 升级已经把成长直接累加进 m_baseStats，这里只同步生命上限并钳制当前血量。
+    m_playerMaxHp = m_baseStats.maxHp;
     m_playerHp = std::min(m_playerHp, m_playerMaxHp);
-
-    m_recalculatingStats = false;
 }
 
 float SurvivorsLayer::DamageMul() const
 {
-    return m_finalStats.damageMul;
+    return m_baseStats.damageMul;
 }
 
 float SurvivorsLayer::AttackSpeedMul() const
 {
-    return m_finalStats.attackSpeedMul;
+    return m_baseStats.attackSpeedMul;
 }
 
 float SurvivorsLayer::CritChance() const
 {
-    return m_finalStats.critChance;
+    return m_baseStats.critChance;
 }
 
 float SurvivorsLayer::MoveSpeed() const
 {
-    return m_finalStats.moveSpeed;
+    return m_baseStats.moveSpeed;
 }
 
 float SurvivorsLayer::PickupRadius() const
 {
-    return m_finalStats.pickupRadius;
+    return m_baseStats.pickupRadius;
 }
 
 float SurvivorsLayer::MaxHp() const
 {
-    return m_finalStats.maxHp;
+    return m_baseStats.maxHp;
 }
 
 int SurvivorsLayer::ExpNeeded(int level)
@@ -428,6 +573,7 @@ void SurvivorsLayer::OnUpdate()
 
     m_hurtFlash = std::max(0.0f, m_hurtFlash - deltaTime * 2.4f);
     m_levelFlash = std::max(0.0f, m_levelFlash - deltaTime * 1.8f);
+    m_stageBanner = std::max(0.0f, m_stageBanner - deltaTime);
     m_shake = std::max(0.0f, m_shake - deltaTime * 34.0f);
 
     UpdateCamera(deltaTime);
@@ -441,6 +587,7 @@ void SurvivorsLayer::OnUpdate()
 void SurvivorsLayer::UpdateGame(float deltaTime)
 {
     m_time += deltaTime;
+    UpdateSfxThrottle(deltaTime);
 
     UpdatePlayer(deltaTime);
     UpdateEnemies(deltaTime);
@@ -456,21 +603,66 @@ void SurvivorsLayer::UpdateGame(float deltaTime)
     std::erase_if(m_projectiles, [](const Projectile& projectile) { return !projectile.alive; });
     std::erase_if(m_gems, [](const Gem& gem) { return !gem.alive; });
 
-    const float untilBoss = m_nextBossTime - m_time;
-    m_bossWarning = (untilBoss > 0.0f && untilBoss < 6.0f) ? 1.0f - untilBoss / 6.0f : 0.0f;
-
-    if (m_time >= VICTORY_TIME && m_state == State::Playing) {
-        m_state = State::Victory;
-        m_levelFlash = 1.0f;
-        m_shake = 12.0f;
-        OI_INFO("Survivors: 玩家撑到了黎明，胜利");
-        return;
+    // 关卡计时：撑过本关时长就过关；第 10 关撑满即通关
+    m_stageTime += deltaTime;
+    if (m_stageTime >= m_stageDuration && m_state == State::Playing) {
+        if (m_stage >= STAGE_COUNT) {
+            m_state = State::Victory;
+            m_levelFlash = 1.0f;
+            m_shake = 12.0f;
+            if (m_bgm) {
+                m_bgm->Stop();
+                m_bgm.reset();
+            }
+            PlaySfx(SfxId::Victory);
+            OI_INFO("Survivors: 10 关全清，玩家撑到了黎明（总耗时 {} 秒）", static_cast<int>(m_time));
+            return;
+        }
+        AdvanceStage();
     }
 
     // 刚关掉升级面板时给一小段缓冲：避免宝石还在往身上飞、立刻又弹一次
     m_levelUpLockout = std::max(0.0f, m_levelUpLockout - deltaTime);
     if (m_pendingLevelUps > 0 && m_levelUpLockout <= 0.0f && m_state == State::Playing) {
         StartLevelUp();
+    }
+}
+
+void SurvivorsLayer::AdvanceStage()
+{
+    ++m_stage;
+    m_stageTime = 0.0f;
+    m_stageDuration = StageDuration(m_stage);
+    m_stageBanner = 2.2f;
+    m_stageBannerBoss = HasBossStage(m_stage);
+
+    // 过关清场：残留敌人与弹丸不带进下一关，地上宝石直接结算成经验（顺带触发升级）
+    for (const Gem& gem : m_gems) {
+        if (gem.alive) {
+            GainExp(static_cast<int>(gem.value));
+        }
+    }
+    m_enemies.clear();
+    m_projectiles.clear();
+    m_gems.clear();
+    m_grid.cells.clear();
+
+    m_spawnTimer = 0.8f;
+    m_shake = std::max(m_shake, 6.0f);
+    SpawnRing(m_playerPosition, 240.0f, 0.6f, C_GOLD);
+
+    // Boss 关直接切到 Boss 曲，普通关切回主曲
+    EnsureBgm(m_stageBannerBoss);
+
+    if (m_stageBannerBoss) {
+        SpawnBoss();
+        PlaySfx(SfxId::BossSpawn);
+        OI_INFO("Survivors: 进入第 {} / {} 关（{} 秒）——血月使徒登场", m_stage, STAGE_COUNT,
+                static_cast<int>(m_stageDuration));
+    } else {
+        PlaySfx(SfxId::StageClear);
+        OI_INFO("Survivors: 进入第 {} / {} 关（{} 秒）", m_stage, STAGE_COUNT,
+                static_cast<int>(m_stageDuration));
     }
 }
 
@@ -506,8 +698,8 @@ void SurvivorsLayer::UpdatePlayer(float deltaTime)
 
     m_hurtCooldown = std::max(0.0f, m_hurtCooldown - deltaTime);
 
-    if (m_finalStats.regenPerSecond > 0.0f && m_playerHp < m_playerMaxHp) {
-        m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_finalStats.regenPerSecond * deltaTime);
+    if (m_baseStats.regenPerSecond > 0.0f && m_playerHp < m_playerMaxHp) {
+        m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_baseStats.regenPerSecond * deltaTime);
     }
 }
 
@@ -597,11 +789,6 @@ void SurvivorsLayer::UpdateEnemies(float deltaTime)
 
 void SurvivorsLayer::UpdateEnemySpawning(float deltaTime)
 {
-    if (m_time >= m_nextBossTime) {
-        SpawnBoss();
-        m_nextBossTime += 55.0f;
-    }
-
     m_spawnTimer -= deltaTime;
     if (m_spawnTimer > 0.0f) {
         return;
@@ -611,9 +798,11 @@ void SurvivorsLayer::UpdateEnemySpawning(float deltaTime)
         return;
     }
 
-    const float interval = std::max(0.20f, 0.80f - m_time * 0.0019f);
+    // 刷怪节奏与兵种全部按关卡推进（第 1 关只有蝙蝠，之后逐关放开）
+    const float stage = static_cast<float>(m_stage);
+    const float interval = std::max(0.22f, 0.85f - 0.055f * (stage - 1.0f));
     m_spawnTimer = interval * Rand(0.80f, 1.20f);
-    const int wave = 2 + std::min(5, static_cast<int>(m_time / 45.0f));
+    const int wave = 2 + std::min(6, (m_stage - 1) / 2 + ((m_stage >= 2) ? 1 : 0));
 
     for (int i = 0; i < wave; ++i) {
         if (static_cast<int>(m_enemies.size()) >= MAX_ENEMIES) {
@@ -621,10 +810,10 @@ void SurvivorsLayer::UpdateEnemySpawning(float deltaTime)
         }
         const glm::vec2 position = EdgeSpawnPoint(40.0f);
 
-        float weightBat = 1.0f;
-        const float weightGhoul = m_time > 18.0f ? std::min(0.90f, (m_time - 18.0f) / 70.0f) : 0.0f;
-        const float weightWraith = m_time > 65.0f ? std::min(0.75f, (m_time - 65.0f) / 75.0f) : 0.0f;
-        const float weightBrute = m_time > 105.0f ? std::min(0.50f, (m_time - 105.0f) / 100.0f) : 0.0f;
+        const float weightBat = 1.0f;
+        const float weightGhoul = m_stage >= 2 ? std::min(0.90f, 0.18f * stage) : 0.0f;
+        const float weightWraith = m_stage >= 4 ? std::min(0.75f, 0.12f * (stage - 3.0f)) : 0.0f;
+        const float weightBrute = m_stage >= 7 ? std::min(0.50f, 0.16f * (stage - 6.0f)) : 0.0f;
         const float total = weightBat + weightGhoul + weightWraith + weightBrute;
         float cursor = Rand(0.0f, total);
         EnemyType type = EnemyType::Bat;
@@ -772,6 +961,7 @@ void SurvivorsLayer::UpdateGems(float deltaTime)
         if (distance < 26.0f) {
             gem.alive = false;
             GainExp(static_cast<int>(gem.value));
+            PlaySfx(SfxId::Pickup, 1.0f, Rand(0.94f, 1.10f));
             SpawnParticles(gem.position, 4, GEM_COLORS[gem.tier], 130.0f, 5.0f, 0.3f);
         }
     }
@@ -917,6 +1107,7 @@ bool SurvivorsLayer::FireMoonBlade()
 
     SpawnParticles(m_playerPosition + direction * 28.0f, 4, C_BLADE, 140.0f, 5.0f, 0.25f);
     m_shake = std::max(m_shake, 1.2f);
+    PlaySfx(SfxId::Blade, 1.0f, Rand(0.96f, 1.06f));
     return true;
 }
 
@@ -963,6 +1154,7 @@ bool SurvivorsLayer::ThrowScythes()
         projectile.pierce = 99;
         m_projectiles.push_back(projectile);
     }
+    PlaySfx(SfxId::Blade, 0.75f, 0.66f);   // 回旋镰复用切割声，压低变慢做成厚重的风啸
     return true;
 }
 
@@ -1008,6 +1200,7 @@ bool SurvivorsLayer::CastStorm()
         SpawnParticles(enemy.position, 6, C_STORM, 220.0f, 8.0f, 0.4f);
         m_shake = std::max(m_shake, 4.0f);
     }
+    PlaySfx(SfxId::Storm);
     return true;
 }
 
@@ -1024,17 +1217,15 @@ void SurvivorsLayer::SpawnEnemy(EnemyType type, const glm::vec2& position)
     enemy.position = position;
     enemy.radius = tuning.radius;
     enemy.speed = tuning.speed;
-    enemy.damage = tuning.damage;
-    enemy.xp = tuning.xp;
     enemy.phase = Rand(0.0f, TAU);
 
-    float hp = tuning.hp;
-    if (type == EnemyType::Boss) {
-        hp *= 1.0f + 0.55f * static_cast<float>(m_bossesSpawned - 1);
-    } else {
-        hp *= 1.0f + m_time * 0.0030f;
-        enemy.damage *= 1.0f + m_time * 0.0016f;
-    }
+    // 数值随关卡递增：血量 +30%/关、伤害 +12%/关、防御 +8%/关、经验 +10%/关
+    const float stageScale = static_cast<float>(m_stage - 1);
+    enemy.damage = tuning.damage * (1.0f + 0.12f * stageScale);
+    enemy.defense = tuning.defense * (1.0f + 0.08f * stageScale);
+    enemy.xp = std::max(1, static_cast<int>(std::lround(tuning.xp * (1.0f + 0.10f * stageScale))));
+
+    const float hp = tuning.hp * (1.0f + 0.30f * stageScale);
     enemy.hp = hp;
     enemy.maxHp = hp;
 
@@ -1056,18 +1247,13 @@ glm::vec2 SurvivorsLayer::EdgeSpawnPoint(float margin)
 
 void SurvivorsLayer::SpawnBoss()
 {
-    ++m_bossesSpawned;
     const float angle = Rand(0.0f, TAU);
     const glm::vec2 position = m_playerPosition + glm::vec2(std::cos(angle), std::sin(angle)) * 560.0f;
     SpawnEnemy(EnemyType::Boss, position);
 
-    if (!m_enemies.empty()) {
-        m_bossId = m_enemies.back().id;
-    }
-    m_bossAlive = true;
     m_shake = 16.0f;
     SpawnRing(position, 220.0f, 0.9f, C_BLOOD);
-    OI_INFO("Survivors: 血月使徒降临（第 {} 只）", m_bossesSpawned);
+    OI_INFO("Survivors: 血月使徒降临（第 {} 关）", m_stage);
 }
 
 void SurvivorsLayer::DamageEnemy(Enemy& enemy, float damage, bool crit)
@@ -1075,10 +1261,15 @@ void SurvivorsLayer::DamageEnemy(Enemy& enemy, float damage, bool crit)
     if (!enemy.alive) {
         return;
     }
-    enemy.hp -= damage;
+    // 玩家进攻：自己的穿甲对目标的防御（怪物只有防御，没有穿甲）
+    const float dealt = ResolveDamage(damage, m_baseStats.penFlat, m_baseStats.penPercent,
+                                      enemy.defense);
+    enemy.hp -= dealt;
     enemy.hitFlash = 0.18f;
-    m_damageDealt += damage;
-    SpawnDamageNumber(enemy.position + glm::vec2(0.0f, enemy.radius * 0.75f), damage, crit);
+    m_damageDealt += dealt;
+    // 命中音随机变调，避免同频堆在一起像报错声
+    PlaySfx(SfxId::Hit, 1.0f, Rand(0.92f, 1.10f));
+    SpawnDamageNumber(enemy.position + glm::vec2(0.0f, enemy.radius * 0.75f), dealt, crit);
     if (enemy.hp <= 0.0f) {
         KillEnemy(enemy);
     }
@@ -1088,6 +1279,7 @@ void SurvivorsLayer::KillEnemy(Enemy& enemy)
 {
     enemy.alive = false;
     ++m_kills;
+    PlaySfx(SfxId::Kill, 1.0f, Rand(0.90f, 1.12f));
 
     const bool isBoss = enemy.type == EnemyType::Boss;
     const glm::vec4 color = [&]() {
@@ -1106,7 +1298,6 @@ void SurvivorsLayer::KillEnemy(Enemy& enemy)
     SpawnRing(enemy.position, enemy.radius * (isBoss ? 6.0f : 2.2f), isBoss ? 0.9f : 0.35f, color);
 
     if (isBoss) {
-        m_bossAlive = false;
         m_shake = 26.0f;
         for (int i = 0; i < 12; ++i) {
             SpawnGem(enemy.position + glm::vec2(Rand(-60.0f, 60.0f), Rand(-60.0f, 60.0f)), 10, true);
@@ -1135,10 +1326,13 @@ void SurvivorsLayer::DamagePlayer(float amount)
     if (!m_playerAlive) {
         return;
     }
-    m_playerHp -= amount;
+    // 玩家挨打：怪物没有穿甲，防御全额生效
+    const float taken = ResolveDamage(amount, 0.0f, 0.0f, m_baseStats.defense);
+    m_playerHp -= taken;
     m_hurtCooldown = 0.95f;
     m_hurtFlash = 1.0f;
     m_shake = std::max(m_shake, 15.0f);
+    PlaySfx(SfxId::Hurt);
     SpawnParticles(m_playerPosition, 14, C_BLOOD, 300.0f, 8.0f, 0.55f);
 
     if (m_playerHp <= 0.0f) {
@@ -1146,6 +1340,11 @@ void SurvivorsLayer::DamagePlayer(float amount)
         m_playerAlive = false;
         m_state = State::GameOver;
         m_shake = 34.0f;
+        if (m_bgm) {
+            m_bgm->Stop();
+            m_bgm.reset();
+        }
+        PlaySfx(SfxId::GameOver);
         SpawnParticles(m_playerPosition, 46, C_BLOOD, 460.0f, 14.0f, 0.9f);
         SpawnRing(m_playerPosition, 360.0f, 1.1f, C_BLOOD);
         OI_INFO("Survivors: 玩家阵亡，存活 {} 秒，击杀 {}", static_cast<int>(m_time), m_kills);
@@ -1248,6 +1447,7 @@ void SurvivorsLayer::StartLevelUp()
     m_levelFlash = 1.0f;
     m_shake = 0.0f;
     m_camera.SetShake(glm::vec2(0.0f, 0.0f));
+    PlaySfx(SfxId::LevelUp);
     BuildUpgradeOptions();
 }
 
@@ -1342,7 +1542,7 @@ void SurvivorsLayer::DescribePassive(int passive, std::string& title, std::strin
             description = std::format("移动速度 +7%\n累计 +{}%", 7 * (level + 1));
             break;
         case 3:
-            description = std::format("最大生命 +25，并立即恢复 25\n上限变为 {:.0f}", MaxHp() + 25.0f);
+            description = std::format("最大生命 +8，并立即恢复 8\n上限变为 {:.0f}", MaxHp() + 8.0f);
             break;
         case 4:
             description = std::format("经验拾取范围 +35%\n累计 +{}%", 35 * (level + 1));
@@ -1351,8 +1551,17 @@ void SurvivorsLayer::DescribePassive(int passive, std::string& title, std::strin
             description = std::format("暴击率 +6%（暴击造成双倍伤害）\n累计 {}%",
                 static_cast<int>((CritChance() + 0.06f) * 100.0f));
             break;
-        default:
+        case 6:
             description = std::format("每秒回复 +0.4 生命\n累计 {:.1f}/秒", 0.4f * static_cast<float>(level + 1));
+            break;
+        case 7:
+            description = std::format("防御 +8（减伤 = 防御 / (防御+100)）\n累计 {:.0f} 点 · 减伤 {:.0f}%",
+                m_baseStats.defense + 8.0f, DefenseReduction(m_baseStats.defense + 8.0f) * 100.0f);
+            break;
+        default:
+            description = std::format("百分比穿甲 +8% · 固定穿甲 +4\n累计 {:.0f}% / {} 点",
+                (m_baseStats.penPercent + 0.08f) * 100.0f,
+                static_cast<int>(m_baseStats.penFlat + 4.0f));
             break;
     }
 }
@@ -1370,16 +1579,48 @@ void SurvivorsLayer::ApplyUpgrade(int optionIndex)
             break;
         case UpgradeKind::Passive:
             m_passive[option.index] = std::min(PASSIVE_MAX[option.index], m_passive[option.index] + 1);
+            // 成长直接累加进基础属性：百分比型步长按开局裸值取比例，线性叠加（不随当前值复利）
+            switch (static_cast<PassiveId>(option.index)) {
+                case PassiveId::Might:
+                    m_baseStats.damageMul += 0.12f;
+                    break;
+                case PassiveId::Haste:
+                    m_baseStats.attackSpeedMul += 0.10f;
+                    break;
+                case PassiveId::Swift:
+                    m_baseStats.moveSpeed += BARE_STATS.moveSpeed * 0.07f;
+                    break;
+                case PassiveId::Vitality:
+                    m_baseStats.maxHp += 8.0f;
+                    break;
+                case PassiveId::Magnet:
+                    m_baseStats.pickupRadius += BARE_STATS.pickupRadius * 0.35f;
+                    break;
+                case PassiveId::Luck:
+                    m_baseStats.critChance += 0.06f;
+                    break;
+                case PassiveId::Bulwark:
+                    m_baseStats.defense += 8.0f;
+                    break;
+                case PassiveId::Sunder:
+                    m_baseStats.penPercent += 0.08f;
+                    m_baseStats.penFlat += 4.0f;
+                    break;
+                case PassiveId::Regen:
+                default:
+                    m_baseStats.regenPerSecond += 0.4f;
+                    break;
+            }
             break;
         case UpgradeKind::Heal:
             break;
     }
 
-    // 任何成长变化后统一重算最终属性（以后武器也带属性时不用再改这里）
+    // 成长已经写进基础属性，这里只需要同步生命上限（并钳制当前血量）
     RecalculateStats();
 
     if (option.kind == UpgradeKind::Passive && option.index == static_cast<int>(PassiveId::Vitality)) {
-        m_playerHp = std::min(m_playerMaxHp, m_playerHp + 25.0f);
+        m_playerHp = std::min(m_playerMaxHp, m_playerHp + 8.0f);
     } else if (option.kind == UpgradeKind::Heal) {
         m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_playerMaxHp * 0.35f);
     }
@@ -1721,10 +1962,12 @@ void SurvivorsLayer::DrawScreenOverlay()
         DrawMesh(m_art.quad, Translate(origin + glm::vec3(0.0f, 0.0f, 3.50f)) * fullScreen,
                  glm::vec4(0.55f, 0.02f, 0.06f, alpha));
     }
-    if (m_bossWarning > 0.0f) {
+    if (m_stageBannerBoss && m_stageBanner > 0.0f) {
+        // Boss 关进关时压一层血光，随横幅一起淡出
         const float pulse = 0.5f + 0.5f * std::sin(m_time * 9.0f);
+        const float intensity = std::min(1.0f, m_stageBanner / 2.2f);
         DrawMesh(m_art.quad, Translate(origin + glm::vec3(0.0f, 0.0f, 3.45f)) * fullScreen,
-                 glm::vec4(0.40f, 0.02f, 0.05f, 0.10f * m_bossWarning * pulse));
+                 glm::vec4(0.40f, 0.02f, 0.05f, 0.10f * intensity * pulse));
     }
 }
 
@@ -1745,16 +1988,24 @@ void SurvivorsLayer::OnImGuiRender()
     }
     if (m_state == State::Title) {
         RenderTitle();
-        return;
-    }
-    RenderHud();
+    } else {
+        RenderHud();
 
-    switch (m_state) {
-        case State::LevelUp: RenderLevelUp(); break;
-        case State::Paused: RenderPause(); break;
-        case State::GameOver: RenderGameOver(); break;
-        case State::Victory: RenderVictory(); break;
-        default: break;
+        switch (m_state) {
+            case State::LevelUp: RenderLevelUp(); break;
+            case State::Paused: RenderPause(); break;
+            case State::GameOver: RenderGameOver(); break;
+            case State::Victory: RenderVictory(); break;
+            default: break;
+        }
+    }
+
+    // 帮助 / 设置面板永远画在最上层（标题页 / 暂停菜单里打开）
+    if (m_showHelp) {
+        RenderHelp();
+    }
+    if (m_showOptions) {
+        RenderOptions();
     }
 }
 
@@ -1777,7 +2028,7 @@ void SurvivorsLayer::RenderTitle()
         ImGui::TextColored(ImVec4(0.95f, 0.90f, 0.72f, 1.0f), "永 夜 幸 存 者");
         ImGui::SetWindowFontScale(1.0f);
         ImGui::Dummy(ImVec2(0.0f, 2.0f));
-        ImGui::TextColored(ImVec4(0.66f, 0.70f, 0.86f, 1.0f), "撑过 180 秒的黑暗，活到黎明。武器会自动开火。");
+        ImGui::TextColored(ImVec4(0.66f, 0.70f, 0.86f, 1.0f), "十关长夜，撑到黎明。");
 
         ImGui::Dummy(ImVec2(0.0f, 14.0f));
         ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.46f, 0.38f, 0.72f, 0.45f));
@@ -1795,6 +2046,26 @@ void SurvivorsLayer::RenderTitle()
         ImGui::PopStyleColor(3);
 
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.20f, 0.32f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.30f, 0.46f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.32f, 0.40f, 0.58f, 1.0f));
+        if (ImGui::Button("游戏说明 / 操作", ImVec2(buttonWidth, 40.0f))) {
+            m_showOptions = false;
+            m_showHelp = true;
+        }
+        ImGui::PopStyleColor(3);
+
+        ImGui::Dummy(ImVec2(0.0f, 6.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.20f, 0.32f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.30f, 0.46f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.32f, 0.40f, 0.58f, 1.0f));
+        if (ImGui::Button("设置 / 音量", ImVec2(buttonWidth, 40.0f))) {
+            m_showHelp = false;
+            m_showOptions = true;
+        }
+        ImGui::PopStyleColor(3);
+
+        ImGui::Dummy(ImVec2(0.0f, 6.0f));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.34f, 0.10f, 0.12f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.50f, 0.14f, 0.17f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.66f, 0.18f, 0.20f, 1.0f));
@@ -1803,13 +2074,141 @@ void SurvivorsLayer::RenderTitle()
         }
         ImGui::PopStyleColor(3);
 
-        ImGui::Dummy(ImVec2(0.0f, 14.0f));
-        ImGui::TextColored(ImVec4(0.52f, 0.56f, 0.70f, 0.9f),
-                           "WASD / 方向键移动   ·   自动攻击   ·   ESC 暂停   ·   F4 调试");
-
         // ImGui 可能把键盘事件标记为已处理，这里用 ImGui 的输入状态补一条开始路径
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Space)) {
+        if (!m_showHelp && !m_showOptions &&
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Space))) {
             ResetRun();
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+}
+
+void SurvivorsLayer::RenderHelp()
+{
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0.0f, 0.0f), display, IM_COL32(4, 4, 12, 190));
+
+    ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Always);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.10f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.46f, 0.38f, 0.72f, 0.55f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(26.0f, 22.0f));
+    if (ImGui::Begin("##survivors-help", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        const ImVec4 colTitle(0.98f, 0.87f, 0.60f, 1.0f);
+        const ImVec4 colKey(0.62f, 0.70f, 0.92f, 1.0f);
+        const ImVec4 colText(0.86f, 0.88f, 0.95f, 1.0f);
+        const ImVec4 colDim(0.60f, 0.64f, 0.78f, 0.95f);
+
+        ImGui::SetWindowFontScale(1.7f);
+        ImGui::TextColored(colTitle, "游 戏 说 明");
+        ImGui::SetWindowFontScale(1.0f);
+
+        // 段落：小标题 + 正文（正文自动按窗口宽度换行）
+        const auto section = [&](const char* name) {
+            ImGui::Dummy(ImVec2(0.0f, 8.0f));
+            ImGui::TextColored(colKey, "%s", name);
+        };
+        const auto body = [&](const char* text) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(colText, "%s", text);
+            ImGui::PopTextWrapPos();
+        };
+
+        section("关卡与目标");
+        body("共 10 关：第 1 关存活 30 秒，之后每关 +5 秒（第 10 关 75 秒）；撑完第 10 关即通关，生命归零则本局结束。");
+        body("只有第 5 关与第 10 关会出现「血月使徒」。过关会清空场上敌人与弹丸，地上的宝石自动折算成经验。");
+
+        section("操作");
+        body("WASD / 方向键移动   ·   武器自动索敌开火，无需攻击键");
+        body("升级时点击卡片选择，或按 1 / 2 / 3");
+        body("ESC / P 暂停   ·   R 重开一局   ·   F4 调试面板");
+
+        section("成长");
+        body("击杀敌人掉落经验宝石，走近自动吸取；升级后从三张卡里选一项强化。");
+        body("武器：月刃（直线穿透）/ 圣光环（近身脉冲）/ 回旋镰（往返切割）/ 雷暴（随机落雷）。");
+        body("被动：力量 / 急速 / 疾行 / 体魄 / 磁石 / 幸运 / 回春 / 铁壁 / 破甲；另有「血之祭」即时回血。");
+
+        section("属性");
+        body("防御：固定值，减伤率 = 防御 / (防御 + 100)。100 点 = 50%，越往上堆收益越钝，但永远不会免疫。");
+        body("穿甲：百分比穿甲先按比例削减对方防御，固定穿甲再扣点；防御被扣到 0 为止，溢出部分不额外生效。");
+        body("其余：伤害、攻速、移速、暴击率、拾取半径、每秒回复。");
+
+        section("敌人");
+        body("蝙蝠（无防御）· 食尸鬼（防御 5）· 怨灵（12）· 石魔（25）· 血月使徒（40）。");
+        body("怪物数值随关卡递增：血量 +30%/关、伤害 +12%/关、防御 +8%/关、经验 +10%/关。");
+
+        ImGui::Dummy(ImVec2(0.0f, 14.0f));
+        const float buttonWidth = ImGui::GetContentRegionAvail().x;
+        if (ImGui::Button("关 闭   (ESC)", ImVec2(buttonWidth, 38.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            m_showHelp = false;
+        }
+        ImGui::TextColored(colDim, "标题界面与暂停菜单都可以再次打开本说明");
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+}
+
+void SurvivorsLayer::RenderOptions()
+{
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0.0f, 0.0f), display, IM_COL32(4, 4, 12, 190));
+
+    ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(460.0f, 0.0f), ImGuiCond_Always);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.10f, 0.98f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.46f, 0.38f, 0.72f, 0.55f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(26.0f, 22.0f));
+    if (ImGui::Begin("##survivors-options", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        const ImVec4 colTitle(0.98f, 0.87f, 0.60f, 1.0f);
+        const ImVec4 colLabel(0.62f, 0.70f, 0.92f, 1.0f);
+        const ImVec4 colText(0.86f, 0.88f, 0.95f, 1.0f);
+        const ImVec4 colDim(0.60f, 0.64f, 0.78f, 0.95f);
+
+        ImGui::SetWindowFontScale(1.7f);
+        ImGui::TextColored(colTitle, "设 置");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+
+        ImGui::TextColored(colLabel, "音量");
+        // 滑条右侧要留标签位置，否则标签会被挤出窗口
+        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x - 96.0f);
+        if (ImGui::SliderFloat("主音量", &m_masterVolume, 0.0f, 1.0f, "%.2f")) {
+            AudioEngine::SetMasterVolume(m_masterVolume);
+        }
+        if (ImGui::SliderFloat("背景音乐", &m_bgmVolume, 0.0f, 1.0f, "%.2f")) {
+            ApplyBgmVolume();
+        }
+        if (ImGui::SliderFloat("音效", &m_sfxVolume, 0.0f, 1.0f, "%.2f")) {
+            // 拖动过程不响，松手时播一声做确认（顺便听到新音量）
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                PlaySfx(SfxId::Pickup);
+            }
+        }
+        ImGui::PopItemWidth();
+
+        if (ImGui::Checkbox("静音（主音量不变，只关输出）", &m_audioMuted)) {
+            AudioEngine::SetMuted(m_audioMuted);
+        }
+
+        ImGui::Dummy(ImVec2(0.0f, 6.0f));
+        ImGui::TextColored(colDim, "主音量作用于全局输出；背景音乐 / 音效再各自乘一层。");
+        ImGui::TextColored(colDim, "设置只在本次运行内有效，不会写入磁盘。");
+
+        ImGui::Dummy(ImVec2(0.0f, 14.0f));
+        const float buttonWidth = ImGui::GetContentRegionAvail().x;
+        if (ImGui::Button("关 闭   (ESC)", ImVec2(buttonWidth, 38.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            m_showOptions = false;
         }
     }
     ImGui::End();
@@ -1826,7 +2225,6 @@ void SurvivorsLayer::RenderHud()
     const ImVec4 colText(0.90f, 0.92f, 0.98f, 1.0f);
     const ImVec4 colDim(0.60f, 0.64f, 0.78f, 0.85f);
     const ImVec4 colHp(0.88f, 0.26f, 0.32f, 1.0f);
-    const ImVec4 colXp(0.42f, 0.82f, 1.00f, 1.0f);
 
     // 顶部经验条
     const float expFraction = m_expNext > 0
@@ -1864,7 +2262,7 @@ void SurvivorsLayer::RenderHud()
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
 
-    // ---- 顶部中央：计时 / 击杀 ----
+    // ---- 顶部中央：关卡计时 / 击杀 ----
     ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, 18.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
     ImGui::SetNextWindowBgAlpha(0.0f);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.10f, 0.45f));
@@ -1873,11 +2271,19 @@ void SurvivorsLayer::RenderHud()
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                      ImGuiWindowFlags_NoInputs)) {
+        const float stageLeft = std::max(0.0f, m_stageDuration - m_stageTime);
+        const bool bossStage = HasBossStage(m_stage);
         ImGui::SetWindowFontScale(1.9f);
-        ImGui::TextColored(colText, "%s", FormatTime(m_time).c_str());
+        ImGui::TextColored(colText, "%s", FormatTime(stageLeft).c_str());
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextColored(colDim, "击杀 %d   ·   距黎明 %s", m_kills,
-                           FormatTime(std::max(0.0f, VICTORY_TIME - m_time)).c_str());
+        ImGui::TextColored(bossStage ? ImVec4(1.0f, 0.48f, 0.50f, 0.95f) : colDim,
+                           "第 %d / %d 关%s   ·   击杀 %d", m_stage, STAGE_COUNT,
+                           bossStage ? " · 血月使徒" : "", m_kills);
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                              bossStage ? ImVec4(0.86f, 0.20f, 0.24f, 1.0f) : ImVec4(0.86f, 0.70f, 0.36f, 1.0f));
+        ImGui::ProgressBar(m_stageDuration > 0.0f ? m_stageTime / m_stageDuration : 0.0f,
+                           ImVec2(250.0f, 6.0f), "");
+        ImGui::PopStyleColor();
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -1910,58 +2316,6 @@ void SurvivorsLayer::RenderHud()
         }
     }
 
-    // ---- 左下：武器 ----
-    ImGui::SetNextWindowPos(ImVec2(18.0f, display.y - 18.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.10f, 0.50f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f);
-    if (ImGui::Begin("##survivors-weapons", nullptr,
-                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoInputs)) {
-        ImGui::TextColored(colDim, "武器");
-        for (int weapon = 0; weapon < 4; ++weapon) {
-            const int level = m_weaponLevel[weapon];
-            if (level <= 0) {
-                continue;
-            }
-            ImGui::TextColored(ImVec4(WEAPON_COLORS[weapon].x, WEAPON_COLORS[weapon].y,
-                                      WEAPON_COLORS[weapon].z, 1.0f),
-                               "%s  %s", WEAPON_NAMES[weapon], ROMAN[level]);
-        }
-    }
-    ImGui::End();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-
-    // ---- 右下：被动 ----
-    ImGui::SetNextWindowPos(ImVec2(display.x - 18.0f, display.y - 18.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
-    ImGui::SetNextWindowBgAlpha(0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.10f, 0.50f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f);
-    if (ImGui::Begin("##survivors-passives", nullptr,
-                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoInputs)) {
-        ImGui::TextColored(colDim, "祝福");
-        bool any = false;
-        for (int passive = 0; passive < static_cast<int>(PassiveId::Count); ++passive) {
-            const int level = m_passive[passive];
-            if (level <= 0) {
-                continue;
-            }
-            any = true;
-            ImGui::SameLine(0.0f, 12.0f);
-            ImGui::TextColored(ImVec4(0.72f, 0.82f, 0.98f, 0.9f), "%s %s", PASSIVE_NAMES[passive], ROMAN[level]);
-        }
-        if (!any) {
-            ImGui::TextColored(ImVec4(0.5f, 0.55f, 0.65f, 0.7f), "暂无");
-        }
-    }
-    ImGui::End();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-
     // ---- 伤害数字 ----
     ImFont* font = ImGui::GetFont();
     for (const DamageNumber& number : m_damageNumbers) {
@@ -1976,31 +2330,24 @@ void SurvivorsLayer::RenderHud()
         background->AddText(font, fontSize, ImVec2(screen.x - size.x * 0.5f, screen.y), color, text);
     }
 
-    if (m_state == State::Playing && m_time < 18.0f) {
-        const float alpha = m_time < 12.0f ? 1.0f : std::clamp((18.0f - m_time) / 6.0f, 0.0f, 1.0f);
-        ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y - 96.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-        ImGui::SetNextWindowBgAlpha(0.0f);
-        if (ImGui::Begin("##survivors-hint", nullptr,
-                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                         ImGuiWindowFlags_NoInputs)) {
-            ImGui::TextColored(ImVec4(0.70f, 0.76f, 0.92f, alpha * 0.85f),
-                               "WASD / 方向键移动   ·   自动攻击   ·   升级时点击卡片（或按 1 / 2 / 3）   ·   ESC 暂停");
-        }
-        ImGui::End();
-    }
-
-    if (m_bossWarning > 0.0f) {
-        const float pulse = 0.55f + 0.45f * std::sin(m_time * 8.0f);
+    // ---- 进关横幅：普通关金色、Boss 关血色，2.2 秒内淡出 ----
+    if (m_stageBanner > 0.0f) {
+        const float fade = std::min(1.0f, m_stageBanner / 0.6f);
+        const float pulse = m_stageBannerBoss ? (0.55f + 0.45f * std::sin(m_time * 8.0f)) : 1.0f;
         ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.30f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowBgAlpha(0.0f);
-        if (ImGui::Begin("##survivors-warning", nullptr,
+        if (ImGui::Begin("##survivors-stage-banner", nullptr,
                          ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                          ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoInputs)) {
-            ImGui::SetWindowFontScale(1.4f);
-            ImGui::TextColored(ImVec4(1.0f, 0.30f, 0.32f, m_bossWarning * pulse), "血月使徒正在苏醒……");
+            ImGui::SetWindowFontScale(1.9f);
+            ImGui::TextColored(m_stageBannerBoss ? ImVec4(1.0f, 0.32f, 0.34f, fade * pulse)
+                                                 : ImVec4(0.98f, 0.84f, 0.52f, fade),
+                               "第 %d 关", m_stage);
             ImGui::SetWindowFontScale(1.0f);
+            ImGui::TextColored(ImVec4(0.72f, 0.76f, 0.90f, fade * 0.9f),
+                               m_stageBannerBoss ? "血月使徒降临 · 撑过 %d 秒" : "存活 %d 秒",
+                               static_cast<int>(m_stageDuration));
         }
         ImGui::End();
     }
@@ -2012,12 +2359,26 @@ void SurvivorsLayer::RenderHud()
             ImGui::Text("FPS %.1f (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
             ImGui::Text("状态 %s", m_state == State::Playing ? "游戏中" : m_state == State::LevelUp ? "升级" :
                                  m_state == State::Paused ? "暂停" : m_state == State::GameOver ? "阵亡" : "胜利");
-            ImGui::Text("时间 %.1f s   击杀 %d", m_time, m_kills);
+            ImGui::Text("关卡 %d / %d（%.1f / %.1f s）", m_stage, STAGE_COUNT, m_stageTime, m_stageDuration);
+            ImGui::Text("总时间 %.1f s   击杀 %d", m_time, m_kills);
             ImGui::Text("敌人 %d   弹丸 %d   宝石 %d   粒子 %d",
                         static_cast<int>(m_enemies.size()), static_cast<int>(m_projectiles.size()),
                         static_cast<int>(m_gems.size()), static_cast<int>(m_particles.size()));
             ImGui::Text("伤害总计 %.0f", m_damageDealt);
             ImGui::Text("玩家 (%.0f, %.0f)  HP %.0f", m_playerPosition.x, m_playerPosition.y, m_playerHp);
+            ImGui::Separator();
+            if (!AudioEngine::IsInitialized()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "音频设备未初始化");
+            } else {
+                if (ImGui::Checkbox("静音", &m_audioMuted)) {
+                    AudioEngine::SetMuted(m_audioMuted);
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(130.0f);
+                if (ImGui::SliderFloat("主音量", &m_masterVolume, 0.0f, 1.0f, "%.2f")) {
+                    AudioEngine::SetMasterVolume(m_masterVolume);
+                }
+            }
             ImGui::Separator();
             if (ImGui::Button("重新开始")) {
                 ResetRun();
@@ -2133,8 +2494,8 @@ void SurvivorsLayer::RenderPause()
         ImGui::SetWindowFontScale(1.8f);
         ImGui::TextColored(ImVec4(0.95f, 0.95f, 1.0f, 1.0f), "已 暂 停");
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextColored(ImVec4(0.62f, 0.66f, 0.80f, 1.0f), "存活 %s   ·   击杀 %d   ·   等级 %d",
-                           FormatTime(m_time).c_str(), m_kills, m_level);
+        ImGui::TextColored(ImVec4(0.62f, 0.66f, 0.80f, 1.0f), "第 %d / %d 关   ·   存活 %s   ·   击杀 %d   ·   等级 %d",
+                           m_stage, STAGE_COUNT, FormatTime(m_time).c_str(), m_kills, m_level);
 
         ImGui::Dummy(ImVec2(0.0f, 4.0f));
         ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.46f, 0.38f, 0.72f, 0.45f));
@@ -2142,8 +2503,8 @@ void SurvivorsLayer::RenderPause()
         ImGui::PopStyleColor();
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
 
-        // ---- 最终属性（BaseStats 叠加所有成长后的快照）----
-        ImGui::TextColored(ImVec4(0.58f, 0.62f, 0.76f, 1.0f), "最终属性");
+        // ---- 当前属性（基础属性：开局裸值 + 全部成长）----
+        ImGui::TextColored(ImVec4(0.58f, 0.62f, 0.76f, 1.0f), "当前属性");
         ImGui::Dummy(ImVec2(0.0f, 2.0f));
         char hpText[48];
         char damageText[32];
@@ -2153,15 +2514,22 @@ void SurvivorsLayer::RenderPause()
         char pickupText[32];
         char regenText[32];
         char bladesText[32];
+        char defenseText[40];
+        char penText[40];
         std::snprintf(hpText, sizeof(hpText), "%.0f / %.0f", m_playerHp, m_playerMaxHp);
         std::snprintf(damageText, sizeof(damageText), "+%.0f%%", (DamageMul() - 1.0f) * 100.0f);
         std::snprintf(hasteText, sizeof(hasteText), "+%.0f%%", (AttackSpeedMul() - 1.0f) * 100.0f);
         std::snprintf(critText, sizeof(critText), "%.0f%%", CritChance() * 100.0f);
         std::snprintf(speedText, sizeof(speedText), "%.0f", MoveSpeed());
         std::snprintf(pickupText, sizeof(pickupText), "%.0f", PickupRadius());
-        std::snprintf(regenText, sizeof(regenText), "+%.1f / 秒", m_finalStats.regenPerSecond);
+        std::snprintf(regenText, sizeof(regenText), "+%.1f / 秒", m_baseStats.regenPerSecond);
         std::snprintf(bladesText, sizeof(bladesText), "%d 道",
                       BLADE.count[m_weaponLevel[static_cast<int>(WeaponId::MoonBlade)]]);
+        // 防御只有固定值，括号里换算成减伤率；穿甲是两档，分开显示
+        std::snprintf(defenseText, sizeof(defenseText), "%.0f 点 · 减伤 %.0f%%",
+                      m_baseStats.defense, DefenseReduction(m_baseStats.defense) * 100.0f);
+        std::snprintf(penText, sizeof(penText), "%.0f 点 / %.0f%%",
+                      m_baseStats.penFlat, m_baseStats.penPercent * 100.0f);
 
         const ImVec4 statLabel(0.58f, 0.62f, 0.76f, 1.0f);
         const ImVec4 statValue(0.92f, 0.94f, 1.00f, 1.0f);
@@ -2194,6 +2562,12 @@ void SurvivorsLayer::RenderPause()
             ImGui::TableSetColumnIndex(1); ImGui::TextColored(statValue, "%s", regenText);
             ImGui::TableSetColumnIndex(2); ImGui::TextColored(statLabel, "飞刃");
             ImGui::TableSetColumnIndex(3); ImGui::TextColored(statValue, "%s", bladesText);
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); ImGui::TextColored(statLabel, "防御");
+            ImGui::TableSetColumnIndex(1); ImGui::TextColored(statValue, "%s", defenseText);
+            ImGui::TableSetColumnIndex(2); ImGui::TextColored(statLabel, "穿甲");
+            ImGui::TableSetColumnIndex(3); ImGui::TextColored(statValue, "%s", penText);
             ImGui::EndTable();
         }
 
@@ -2234,6 +2608,14 @@ void SurvivorsLayer::RenderPause()
         if (ImGui::Button("重新开始  (R)", ImVec2(buttonWidth, 38.0f))) {
             ResetRun();
         }
+        if (ImGui::Button("游戏说明 / 操作", ImVec2(buttonWidth, 38.0f))) {
+            m_showOptions = false;
+            m_showHelp = true;
+        }
+        if (ImGui::Button("设置 / 音量", ImVec2(buttonWidth, 38.0f))) {
+            m_showHelp = false;
+            m_showOptions = true;
+        }
         ImGui::Dummy(ImVec2(0.0f, 4.0f));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.34f, 0.10f, 0.12f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.50f, 0.14f, 0.17f, 1.0f));
@@ -2244,10 +2626,11 @@ void SurvivorsLayer::RenderPause()
         ImGui::PopStyleColor(3);
 
         // 暂停菜单出现时 ImGui 可能吃掉键盘事件，这里直接用 ImGui 的输入状态补一条 ESC/P 继续；
-        // 开面板的同一帧仍可能在队列里，用几帧宽限期避开
+        // 开面板的同一帧仍可能在队列里，用几帧宽限期避开；帮助 / 设置面板打开时 ESC/P 只关面板
         if (m_pauseGuardFrames > 0) {
             --m_pauseGuardFrames;
-        } else if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_P)) {
+        } else if (!m_showHelp && !m_showOptions &&
+                   (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_P))) {
             m_state = State::Playing;
         }
     }
@@ -2271,14 +2654,27 @@ void SurvivorsLayer::RenderGameOver()
         ImGui::TextColored(ImVec4(0.95f, 0.28f, 0.32f, 1.0f), "你 被 黑 暗 吞 噬");
         ImGui::SetWindowFontScale(1.0f);
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
+        ImGui::TextColored(ImVec4(0.80f, 0.80f, 0.90f, 1.0f), "到达关卡   %d / %d", m_stage, STAGE_COUNT);
         ImGui::TextColored(ImVec4(0.80f, 0.80f, 0.90f, 1.0f), "存活时间   %s", FormatTime(m_time).c_str());
         ImGui::TextColored(ImVec4(0.80f, 0.80f, 0.90f, 1.0f), "击杀数量   %d", m_kills);
         ImGui::TextColored(ImVec4(0.80f, 0.80f, 0.90f, 1.0f), "达到等级   %d", m_level);
         ImGui::TextColored(ImVec4(0.80f, 0.80f, 0.90f, 1.0f), "造成伤害   %.0f", m_damageDealt);
         ImGui::Dummy(ImVec2(0.0f, 10.0f));
-        if (ImGui::Button("再来一局  (R)", ImVec2(ImGui::GetContentRegionAvail().x, 42.0f))) {
+        const float buttonWidth = ImGui::GetContentRegionAvail().x;
+        if (ImGui::Button("再来一局  (R)", ImVec2(buttonWidth, 42.0f))) {
             ResetRun();
         }
+        if (ImGui::Button("回到标题", ImVec2(buttonWidth, 38.0f))) {
+            ReturnToTitle();
+        }
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.34f, 0.10f, 0.12f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.50f, 0.14f, 0.17f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.66f, 0.18f, 0.20f, 1.0f));
+        if (ImGui::Button("退出游戏", ImVec2(buttonWidth, 38.0f))) {
+            Application::Get().Close();
+        }
+        ImGui::PopStyleColor(3);
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -2299,16 +2695,29 @@ void SurvivorsLayer::RenderVictory()
         ImGui::SetWindowFontScale(2.0f);
         ImGui::TextColored(ImVec4(1.0f, 0.86f, 0.50f, 1.0f), "黎 明 降 临");
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextColored(ImVec4(0.75f, 0.80f, 0.95f, 1.0f), "你撑过了漫长的黑夜。");
+        ImGui::TextColored(ImVec4(0.75f, 0.80f, 0.95f, 1.0f), "十关尽破，你走出了漫漫长夜。");
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
-        ImGui::TextColored(ImVec4(0.82f, 0.84f, 0.94f, 1.0f), "存活时间   %s", FormatTime(m_time).c_str());
+        ImGui::TextColored(ImVec4(0.82f, 0.84f, 0.94f, 1.0f), "通关关卡   %d / %d", m_stage, STAGE_COUNT);
+        ImGui::TextColored(ImVec4(0.82f, 0.84f, 0.94f, 1.0f), "总耗时     %s", FormatTime(m_time).c_str());
         ImGui::TextColored(ImVec4(0.82f, 0.84f, 0.94f, 1.0f), "击杀数量   %d", m_kills);
         ImGui::TextColored(ImVec4(0.82f, 0.84f, 0.94f, 1.0f), "达到等级   %d", m_level);
         ImGui::TextColored(ImVec4(0.82f, 0.84f, 0.94f, 1.0f), "造成伤害   %.0f", m_damageDealt);
         ImGui::Dummy(ImVec2(0.0f, 10.0f));
-        if (ImGui::Button("再来一局  (R)", ImVec2(ImGui::GetContentRegionAvail().x, 42.0f))) {
+        const float buttonWidth = ImGui::GetContentRegionAvail().x;
+        if (ImGui::Button("再来一局  (R)", ImVec2(buttonWidth, 42.0f))) {
             ResetRun();
         }
+        if (ImGui::Button("回到标题", ImVec2(buttonWidth, 38.0f))) {
+            ReturnToTitle();
+        }
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.34f, 0.10f, 0.12f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.50f, 0.14f, 0.17f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.66f, 0.18f, 0.20f, 1.0f));
+        if (ImGui::Button("退出游戏", ImVec2(buttonWidth, 38.0f))) {
+            Application::Get().Close();
+        }
+        ImGui::PopStyleColor(3);
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -2328,6 +2737,15 @@ void SurvivorsLayer::OnEvent(Event& event)
     }
 
     const int key = keyEvent.GetKeyCode();
+    if (m_showHelp || m_showOptions) {
+        // 帮助 / 设置面板打开时只处理关闭：ESC 收起面板，不顺手开始 / 暂停 / 重开
+        if (key == Key::Escape) {
+            m_showHelp = false;
+            m_showOptions = false;
+            event.handled = true;
+        }
+        return;
+    }
     if (m_state == State::Title) {
         // 标题界面只响应开始；ESC 等快捷键留给游戏内
         if (key == Key::Enter || key == Key::Space) {
