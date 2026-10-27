@@ -417,7 +417,7 @@ void PlaneGameLayer::LoadSounds()
         return;
     }
 
-    // 音效由 SandBox/assets/audio/generate_audio.py 程序化生成；CMake 构建后复制到输出目录
+    // 音效由 SandBox/tools/generate_audio.py 程序化生成；CMake 构建后复制到输出目录
     m_shotSound = AudioEngine::LoadClip(AudioAssetPath("laser.wav"));
     m_explosionSound = AudioEngine::LoadClip(AudioAssetPath("explosion.wav"));
     m_pickupSound = AudioEngine::LoadClip(AudioAssetPath("pickup.wav"));

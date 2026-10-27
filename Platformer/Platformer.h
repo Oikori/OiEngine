@@ -171,6 +171,8 @@ namespace OiEngine::Platformer {
         // ---- 资源 ----
         void CreateShaders();
         void CreateMeshes();
+        void LoadSounds();
+        void StartMusic();
 
         // ---- 关卡 ----
         void BuildBackdrop();   // 云层 + 远山（只在 OnAttach 生成一次）
@@ -276,5 +278,17 @@ namespace OiEngine::Platformer {
 
         bool m_showDebug = false;
         bool m_showHitboxes = false;    // F4 面板开关：绘制判定盒
+
+        // 音频资源（Platformer/assets/audio，构建后复制到输出目录）
+        Ref<AudioClip> m_bgmClip;
+        Ref<AudioClip> m_jumpSound;
+        Ref<AudioClip> m_landSound;
+        Ref<AudioClip> m_coinSound;
+        Ref<AudioClip> m_checkpointSound;
+        Ref<AudioClip> m_deathSound;
+        Ref<AudioClip> m_victorySound;
+        Ref<SoundInstance> m_bgm;
+        float m_audioVolume = 0.8f;
+        bool m_audioMuted = false;
     };
 }

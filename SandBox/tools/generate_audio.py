@@ -1,7 +1,7 @@
 """生成 PlaneGame 使用的程序化音效（无外部素材、可重复构建）。
 
-用法：python generate_audio.py
-输出：与本脚本同目录的 laser.wav / explosion.wav / pickup.wav / hit.wav
+用法：python SandBox/tools/generate_audio.py
+输出：SandBox/assets/audio/ 下的 laser.wav / explosion.wav / pickup.wav / hit.wav
 格式：44.1 kHz / 16-bit / 单声道 PCM
 """
 
@@ -12,10 +12,12 @@ import wave
 from pathlib import Path
 
 SAMPLE_RATE = 44100
+OUT_DIR = Path(__file__).resolve().parent.parent / "assets" / "audio"
 
 
 def write_wav(name: str, samples: list[float]) -> None:
-    path = Path(__file__).with_name(name)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUT_DIR / name
     frames = bytearray()
     for value in samples:
         clamped = max(-1.0, min(1.0, value))

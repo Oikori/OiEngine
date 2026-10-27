@@ -50,6 +50,7 @@
   - 新增 `.cpp` 要同时加进 `SandBox/CMakeLists.txt`（SandBox 是显式源文件列表；`Engine/` 是 GLOB_RECURSE，
     新增引擎源文件只需重跑 `cmake --preset mingw-debug`）
 - `Platformer/` — 从 SandBox 拆出的独立平台跳跃工程：`main.cpp` + `Platformer.*` + 本地 `RenderHelpers.h`
+  + `assets/audio`（程序化 BGM / 音效，构建后复制到 `output/assets`）
   （多段式关卡 + 移动平台 + 尖刺陷阱 + 存档点；见 [平台跳跃](docs/平台跳跃.md)）
 - `Survivors/` — 独立可执行工程：类《吸血鬼幸存者》俯视角生存游戏
   （产物 `output/Survivors.exe`，源码只有 `main.cpp` + `SurvivorsGame.*` + `SurvivorsArt.*`；见 [幸存者](docs/幸存者.md)）
@@ -69,8 +70,8 @@ cmake --build build/cmake-build-debug
 cmake --preset mingw-debug      # 或 mingw-release
 ```
 
-- 产物在 `output/`：`libEngine.dll`、`SandBox.exe`、`Platformer.exe`、`Survivors.exe`；SandBox 的 `assets/` 由 CMake `POST_BUILD`
-  复制到 `output/assets/`，资源按运行时工作目录读取（在 `output/` 启动 SandBox）
+- 产物在 `output/`：`libEngine.dll`、`SandBox.exe`、`Platformer.exe`、`Survivors.exe`；SandBox / Platformer 的 `assets/`
+  由各自的 CMake `POST_BUILD` 复制到 `output/assets/`，资源按运行时工作目录读取（在 `output/` 启动）
 - 命令行直接运行 `output/SandBox.exe` 需要 MinGW 运行时 DLL 在 PATH 中（否则秒退无输出）：
   `$env:PATH = "D:\Program Files\JetBrains\CLion 2025.2.1\bin\mingw\bin;$env:PATH"`；CLion 运行配置会自动处理
 - 编译器路径记录在 `build/cmake-build-debug/CMakeCache.txt`（当前为 CLion 自带 MinGW GCC 15）

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <random>
+#include <string>
 #include <vector>
 
 #include <imgui.h>
@@ -72,6 +73,28 @@ namespace {
     float RandomFloat(float min, float max)
     {
         return std::uniform_real_distribution<float>(min, max)(g_rng);
+    }
+
+    constexpr float BGM_VOLUME = 0.42f;
+    constexpr float BGM_VICTORY_VOLUME = 0.12f;
+
+    // 运行时工作目录下的资源路径（assets 由 CMake POST_BUILD 复制到输出目录）
+    std::string AudioAssetPath(const char* fileName)
+    {
+        return std::string("assets/audio/") + fileName;
+    }
+
+    // 2D 一次性音效：Play 返回的声部由 AudioEngine 自动持有到播放结束
+    void PlayOneShot(const Ref<AudioClip>& clip, float volume, float pitch = 1.0f)
+    {
+        if (!clip) {
+            return;
+        }
+
+        AudioPlaybackSettings settings;
+        settings.volume = volume;
+        settings.pitch = pitch;
+        clip->Play(settings);
     }
 
     // ---------- 程序化几何（PlaneGame 同款顶点格式：Float3 位置 + Float4 颜色）----------
@@ -359,14 +382,61 @@ void PlatformerLayer::OnAttach()
     CreateShaders();
     CreateMeshes();
     BuildBackdrop();
+    LoadSounds();
     ResetLevel();
+    StartMusic();
 
     RenderCommand::SetClearColor(glm::vec4(0.62f, 0.78f, 0.92f, 1.0f));
 
     OI_INFO("Platformer OnAttach");
 }
 
-void PlatformerLayer::OnDetach() {}
+void PlatformerLayer::OnDetach()
+{
+    if (m_bgm) {
+        m_bgm->Stop();
+        m_bgm.reset();
+    }
+}
+
+void PlatformerLayer::LoadSounds()
+{
+    if (!AudioEngine::IsInitialized()) {
+        OI_WARN("Platformer: audio device unavailable, sound effects disabled");
+        return;
+    }
+
+    m_bgmClip = AudioEngine::LoadClip(AudioAssetPath("bgm.wav"), /*streaming=*/true);
+    m_jumpSound = AudioEngine::LoadClip(AudioAssetPath("jump.wav"));
+    m_landSound = AudioEngine::LoadClip(AudioAssetPath("land.wav"));
+    m_coinSound = AudioEngine::LoadClip(AudioAssetPath("coin.wav"));
+    m_checkpointSound = AudioEngine::LoadClip(AudioAssetPath("checkpoint.wav"));
+    m_deathSound = AudioEngine::LoadClip(AudioAssetPath("death.wav"));
+    m_victorySound = AudioEngine::LoadClip(AudioAssetPath("victory.wav"));
+
+    AudioEngine::SetMasterVolume(m_audioVolume);
+    AudioEngine::SetMuted(m_audioMuted);
+}
+
+void PlatformerLayer::StartMusic()
+{
+    if (!m_bgmClip) {
+        return;
+    }
+    if (m_bgm && !m_bgm->IsFinished()) {
+        return;
+    }
+
+    AudioPlaybackSettings music;
+    music.volume = BGM_VOLUME;
+    music.looping = true;
+    m_bgm = m_bgmClip->Play(music);
+    if (!m_bgm) {
+        OI_WARN("Platformer: failed to start background music");
+        return;
+    }
+    OI_INFO("Platformer: background music started (loop)");
+}
 
 void PlatformerLayer::CreateShaders()
 {
@@ -674,6 +744,14 @@ void PlatformerLayer::ResetLevel()
     // 相机直接就位，避免从上一个位置平滑拉过来
     m_camera.SetCenter(glm::vec2(CameraTargetX(m_spawnPoint.x), 0.0f));
     m_camera.SetShakeOffset(glm::vec3(0.0f, 0.0f, 0.0f));
+
+    // 从胜利 / 低音量状态重开时恢复 BGM
+    if (m_bgm) {
+        m_bgm->SetVolume(BGM_VOLUME);
+        if (!m_bgm->IsPlaying()) {
+            m_bgm->Resume();
+        }
+    }
 }
 
 void PlatformerLayer::RespawnAtCheckpoint()
@@ -711,6 +789,7 @@ void PlatformerLayer::KillPlayer(const char* cause, const glm::vec2& effectPosit
 
     SpawnPuff(effectPosition, 12, DEATH_SPARK, 250.0f, 15.0f, 300.0f);
     SpawnPuff(effectPosition, 6, DUST, 130.0f, 12.0f, 420.0f);
+    PlayOneShot(m_deathSound, 0.52f, RandomFloat(0.96f, 1.04f));
 
     RespawnAtCheckpoint();
 }
@@ -813,6 +892,7 @@ void PlatformerLayer::UpdatePlayer(float deltaTime)
         m_apexActive = false;
         m_squash = 1.10f;
         SpawnPuff(m_playerPosition + glm::vec2(0.0f, -PLAYER_HALF_HEIGHT), 5, DUST, 95.0f, 15.0f, 420.0f);
+        PlayOneShot(m_jumpSound, 0.32f, RandomFloat(0.97f, 1.03f));
     }
 
     // ---- 3) 可变跳跃高度：按住跳跃键的时长决定高度，松开瞬间削减上升速度 ----
@@ -893,6 +973,7 @@ void PlatformerLayer::UpdatePlayer(float deltaTime)
             m_squash = 1.0f - 0.18f * impact;
             SpawnPuff(m_playerPosition + glm::vec2(0.0f, -PLAYER_HALF_HEIGHT),
                       4 + static_cast<int>(impact * 5.0f), DUST, 80.0f + 120.0f * impact, 13.0f, 500.0f);
+            PlayOneShot(m_landSound, 0.14f + 0.18f * impact, 0.95f + 0.10f * impact);
         }
         m_coyoteTimer = m_tuning.coyoteTime;
         m_apexActive = false;
@@ -932,6 +1013,7 @@ void PlatformerLayer::UpdatePlayer(float deltaTime)
             m_respawnPoint = glm::vec2(checkpoint.position.x, checkpoint.position.y + PLAYER_HALF_HEIGHT + 2.0f);
             SpawnPuff(checkpoint.position + glm::vec2(0.0f, 44.0f), 12,
                       glm::vec4(0.45f, 1.0f, 0.62f, 1.0f), 170.0f, 13.0f, -40.0f);
+            PlayOneShot(m_checkpointSound, 0.42f);
         }
     }
 
@@ -945,6 +1027,7 @@ void PlatformerLayer::UpdatePlayer(float deltaTime)
             coin.collected = true;
             ++m_coinsCollected;
             SpawnPuff(coin.position, 9, glm::vec4(1.0f, 0.87f, 0.42f, 1.0f), 150.0f, 12.0f, -60.0f);
+            PlayOneShot(m_coinSound, 0.32f, RandomFloat(0.98f, 1.04f));
         }
     }
 
@@ -953,6 +1036,10 @@ void PlatformerLayer::UpdatePlayer(float deltaTime)
     if (std::abs(flagCenter.x - m_playerPosition.x) < PLAYER_HALF_WIDTH + 26.0f &&
         std::abs(flagCenter.y - m_playerPosition.y) < PLAYER_HALF_HEIGHT + FLAG_HEIGHT * 0.5f) {
         m_state = GameState::Victory;
+        if (m_bgm) {
+            m_bgm->SetVolume(BGM_VICTORY_VOLUME);
+        }
+        PlayOneShot(m_victorySound, 0.55f);
         SpawnPuff(flagCenter, 16, glm::vec4(1.0f, 0.87f, 0.42f, 1.0f), 220.0f, 16.0f, -80.0f);
     }
 }
@@ -1485,6 +1572,25 @@ void PlatformerLayer::RenderHud()
         ImGui::Text("所站平台：%s", onMover ? "移动平台（随平台位移）" : "地面 / 静态平台");
         ImGui::TextDisabled("ImGui 键盘捕获 %s / 文本输入 %s", io.WantCaptureKeyboard ? "开" : "关",
                             io.WantTextInput ? "开" : "关");
+        ImGui::Separator();
+
+        ImGui::Text("音频");
+        if (!AudioEngine::IsInitialized()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "音频设备未初始化");
+        } else {
+            if (ImGui::Checkbox("静音", &m_audioMuted)) {
+                AudioEngine::SetMuted(m_audioMuted);
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120.0f);
+            if (ImGui::SliderFloat("主音量", &m_audioVolume, 0.0f, 1.0f, "%.2f")) {
+                AudioEngine::SetMasterVolume(m_audioVolume);
+            }
+            if (ImGui::Button("测试音效")) {
+                PlayOneShot(m_coinSound, 0.35f);
+                PlayOneShot(m_checkpointSound, 0.35f);
+            }
+        }
         ImGui::Separator();
 
         if (ImGui::CollapsingHeader("1) 加速下落", ImGuiTreeNodeFlags_DefaultOpen)) {
