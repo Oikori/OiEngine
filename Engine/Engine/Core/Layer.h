@@ -4,7 +4,7 @@
 #include "Engine/Events/Event.h"
 
 namespace OiEngine {
-	class OI_API Layer {
+	class OI_ENGINE_API Layer {
 	public:
         explicit Layer(const std::string& name = "Layer");
 		virtual ~Layer() = default;

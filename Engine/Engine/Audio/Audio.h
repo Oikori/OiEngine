@@ -32,7 +32,7 @@ namespace OiEngine {
     // 一个正在播放的声部（voice）。同一个 AudioClip 每次 Play 都会创建独立声部，可叠加播放。
     // Play 的返回值不用保存：AudioEngine::Update 会保留到播放结束再回收。
     // 只能在主线程使用；AudioEngine::Shutdown 之后播放 / 修改类方法均为空操作。
-    class OI_API SoundInstance {
+    class OI_ENGINE_API SoundInstance {
     public:
         ~SoundInstance();
 
@@ -74,7 +74,7 @@ namespace OiEngine {
 
     // 音频文件资源：加载一次，可多次 Play。非流式时内部共享预解码的 PCM 数据，每次 Play 只分配一个独立声部。
     // 支持 miniaudio 内置解码格式（wav / mp3 / flac / ogg 等），路径相对当前工作目录。
-    class OI_API AudioClip {
+    class OI_ENGINE_API AudioClip {
     public:
         ~AudioClip();
 
@@ -99,7 +99,7 @@ namespace OiEngine {
 
     // 全局音频设备与资源管理。Init / Shutdown / Update 由 Application 自动调用，
     // 业务层只需要 LoadClip + Play。初始化失败不会阻塞引擎运行（音频静默）。
-    class OI_API AudioEngine {
+    class OI_ENGINE_API AudioEngine {
     public:
         // 启动音频设备；重复调用无副作用。失败返回 false（可用 IsInitialized 查询）
         static bool Init();

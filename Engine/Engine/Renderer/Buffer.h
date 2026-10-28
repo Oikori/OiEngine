@@ -95,7 +95,7 @@ namespace OiEngine {
 		uint32_t m_stride = 0;
 	};
 
-	class OI_API VertexBuffer {
+	class OI_ENGINE_API VertexBuffer {
 	public:
 		virtual ~VertexBuffer() = default;
 
@@ -112,7 +112,7 @@ namespace OiEngine {
 	};
 
 	// Currently Hazel only supports 32-bit index buffers
-	class OI_API IndexBuffer {
+	class OI_ENGINE_API IndexBuffer {
 	public:
 		virtual ~IndexBuffer() = default;
 

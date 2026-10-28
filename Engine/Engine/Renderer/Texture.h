@@ -49,13 +49,13 @@ namespace OiEngine {
 		virtual bool operator==(const Texture& other) const = 0;
 	};
 
-	class OI_API Texture2D : public Texture {
+	class OI_ENGINE_API Texture2D : public Texture {
 	public:
 		static Ref<Texture2D> Create(const TextureSpecification& specification);
 		static Ref<Texture2D> Create(const std::string& path);
 	};
 
-	class OI_API Texture3D {
+	class OI_ENGINE_API Texture3D {
 	public:
 		virtual ~Texture3D() = default;
 

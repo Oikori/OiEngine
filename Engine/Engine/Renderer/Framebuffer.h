@@ -45,7 +45,7 @@ namespace OiEngine {
 		bool swapChainTarget = false;
 	};
 
-	class OI_API Framebuffer {
+	class OI_ENGINE_API Framebuffer {
 	public:
 		virtual ~Framebuffer() = default;
 

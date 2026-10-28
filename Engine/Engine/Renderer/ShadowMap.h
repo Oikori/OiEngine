@@ -15,7 +15,7 @@ namespace OiEngine {
 	// 方向光阴影贴图：只含一个深度附件的离屏帧缓冲，从光源视角渲染场景深度，
 	// 光照着色时把世界坐标投影到光空间并与深度比较，即可得到阴影。
 	// 使用方法见 AGENTS.md「阴影」一节；渲染流程由 Renderer::BeginShadowPass / EndShadowPass 驱动。
-	class OI_API ShadowMap {
+	class OI_ENGINE_API ShadowMap {
 	public:
 		// size 为正方形边长（像素），默认 2048
 		explicit ShadowMap(uint32_t size = 2048);

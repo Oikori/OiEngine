@@ -16,7 +16,7 @@ namespace OiEngine {
 	//       // 用探针给的视图 / 投影把场景画进当前面（材质用简化着色即可，不能依赖探针自身）
 	//   });
 	// 光照着色器侧：环境漫反射采样 irradiance，环境镜面采样 prefilter（LOD = roughness * 最大 mip）。
-	class OI_API EnvironmentProbe {
+	class OI_ENGINE_API EnvironmentProbe {
 	public:
 		// 捕获回调：画进当前 cubemap 面（视图 / 投影矩阵由探针提供，fov 90°、宽高比 1:1）
 		using CaptureCallback = std::function<void(const glm::mat4& faceView, const glm::mat4& faceProjection)>;

@@ -6,7 +6,7 @@
 #include "Engine/Math.h"
 
 namespace OiEngine {
-	class OI_API Shader {
+	class OI_ENGINE_API Shader {
 	public:
 		virtual ~Shader() = default;
 
@@ -33,7 +33,7 @@ namespace OiEngine {
 		static Ref<Shader> CreateCompute(const std::string& name, const std::string& computeSrc);
 	};
 
-	class OI_API ShaderLibrary {
+	class OI_ENGINE_API ShaderLibrary {
 	public:
 		void Add(const std::string& name, const Ref<Shader>& shader);
 		void Add(const Ref<Shader>& shader);

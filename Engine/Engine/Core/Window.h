@@ -13,7 +13,7 @@ namespace OiEngine {
 	};
 
 	// Interface representing a desktop system based Window
-	class OI_API Window {
+	class OI_ENGINE_API Window {
 	public:
 		using EventCallbackFn = std::function<void(Event&)>;
 

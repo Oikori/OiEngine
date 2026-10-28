@@ -16,7 +16,7 @@ namespace OiEngine {
 		glm::vec4 cameraPosition;
 	};
 
-	class OI_API Camera {
+	class OI_ENGINE_API Camera {
 	public:
 		virtual ~Camera() = default;
 

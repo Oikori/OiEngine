@@ -3,12 +3,12 @@
 #include <format>
 #include <string>
 
-#include "Engine/Core/Base.h"
+#include "export.h"
 
 namespace OiEngine {
 	// 引擎日志：按级别过滤后写到控制台（Trace 默认关闭）。
 	// 宏用 std::format 做格式化，支持 spdlog 风格的 {0} / {1} 位置参数与普通的 {} 占位。
-	class OI_API Log {
+	class OI_ENGINE_API Log {
 	public:
 		enum class Level {
 			Trace = 0, Info, Warn, Error, Critical

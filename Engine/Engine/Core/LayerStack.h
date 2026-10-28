@@ -9,7 +9,7 @@ namespace OiEngine {
     // Layer 栈：普通层从下往上插入，overlay（如 UI 层）始终位于栈顶
     // 事件按栈顶优先（逆序）分发，overlay 能最先拦截输入；渲染按正序进行，overlay 最后绘制
     // 注意：LayerStack 不持有层的所有权，OnAttach/OnDetach 与 delete 由 Application 统一管理
-    class OI_API LayerStack {
+    class OI_ENGINE_API LayerStack {
     public:
         LayerStack() = default;
         ~LayerStack() = default;

@@ -5,7 +5,7 @@
 #include "Engine/Core/Base.h"
 
 namespace OiEngine::Math {
-    class OI_API Random final {
+    class OI_ENGINE_API Random final {
     public:
         Random();
         explicit Random(unsigned int seed);

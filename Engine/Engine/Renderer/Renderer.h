@@ -15,7 +15,7 @@
 #include "UniformBuffer.h"
 
 namespace OiEngine {
-	class OI_API Renderer {
+	class OI_ENGINE_API Renderer {
 	public:
 		static void Init();
 		static void Shutdown();

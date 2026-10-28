@@ -7,7 +7,7 @@
 #include "Engine/Core/Base.h"
 
 namespace OiEngine::Math {
-    class OI_API UUID final {
+    class OI_ENGINE_API UUID final {
     public:
         UUID(const UUID& other);
         UUID(UUID&& other) noexcept;

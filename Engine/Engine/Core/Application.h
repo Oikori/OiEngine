@@ -31,7 +31,7 @@ namespace OiEngine {
         int maxFixedUpdatePerFrame = 5;
     };
 
-    class OI_API Application final {
+    class OI_ENGINE_API Application final {
     public:
         ~Application();
 

@@ -6,7 +6,7 @@ namespace OiEngine {
 	// 聚光灯阴影贴图数组：每盏投射阴影的聚光灯占一层深度图（NEAREST + 边界外返回 1.0，
 	// 与 ShadowMap 的采样约定一致），光照着色器按层索引采样。
 	// 流程与 ShadowMap 相同，由 Renderer::BeginShadowPass / EndShadowPass 驱动，见 AGENTS.md「阴影」一节。
-	class OI_API ShadowMapArray {
+	class OI_ENGINE_API ShadowMapArray {
 	public:
 		virtual ~ShadowMapArray() = default;
 

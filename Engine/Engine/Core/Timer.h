@@ -5,7 +5,7 @@
 #include "Base.h"
 
 namespace OiEngine {
-	class OI_API Timer {
+	class OI_ENGINE_API Timer {
 	public:
         static void Init();
 	    static void Update();

@@ -5,7 +5,7 @@
 #include "Buffer.h"
 
 namespace OiEngine {
-	class OI_API VertexArray {
+	class OI_ENGINE_API VertexArray {
 	public:
 		virtual ~VertexArray() = default;
 

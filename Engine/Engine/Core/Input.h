@@ -6,7 +6,7 @@
 #include "Engine/Math.h"
 
 namespace OiEngine {
-	class OI_API Input {
+	class OI_ENGINE_API Input {
 	public:
 		static bool IsKeyPressed(KeyCode key);
 

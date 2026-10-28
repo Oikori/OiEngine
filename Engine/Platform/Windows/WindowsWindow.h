@@ -4,7 +4,7 @@
 #include "Engine/Renderer/GraphicsContext.h"
 
 namespace OiEngine {
-	class OI_API WindowsWindow : public Window {
+	class OI_ENGINE_API WindowsWindow : public Window {
 	public:
         explicit WindowsWindow(const WindowProps& props);
 		~WindowsWindow() override;

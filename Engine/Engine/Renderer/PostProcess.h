@@ -18,7 +18,7 @@ namespace OiEngine {
 	//   Renderer::BeginScene(camera, scene);   // 此时绑定 HDR 目标并清屏
 	//   ... 场景绘制（着色器输出线性 HDR 颜色，不做 tonemap / gamma）...
 	//   Renderer::EndScene();                  // 跑后处理链，输出到默认帧缓冲
-	class OI_API PostProcess {
+	class OI_ENGINE_API PostProcess {
 	public:
 		static void Init();
 		static void Shutdown();

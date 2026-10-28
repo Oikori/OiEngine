@@ -14,7 +14,7 @@ namespace OiEngine {
 	// 使用方式：Renderer::SetLightCullingEnabled(true)（见 Renderer::BeginScene —— 上传光源数据后自动派发）。
 	// shader 侧需要声明 ClusterLightCounts（binding = 4）/ ClusterLightIndices（binding = 5）两个 buffer，
 	// 并按同一套 cluster 索引规则定位（见 IndoorDemo 的光照着色器 / LightClustering.cpp 的 compute 源码）。
-	class OI_API LightClustering {
+	class OI_ENGINE_API LightClustering {
 	public:
 		static constexpr uint32_t TileSize = 16;              // 屏幕 tile 边长（像素）
 		static constexpr uint32_t SliceCount = 24;            // 视空间深度切片数

@@ -1,6 +1,6 @@
 # OiEngine — 项目说明（供 AI 协作者）
 
-自研 C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（≥3.20）。
+C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（≥3.20）。
 
 - `Engine`：动态库（产物 `output/libEngine.dll`）
 - `SandBox`：演示程序（产物 `output/SandBox.exe`，含飞机大战、太阳系、阴影演示、室内多光源、体积云五个场景，F1/F2/F5/F6/F7 切换）
@@ -32,7 +32,7 @@
 ## 目录结构
 
 - `Engine/` — 库工程（include 根目录，见下）
-  - `Engine/Engine/Core/` — `Base.h`（OI_API / OI_ASSERT / Scope / Ref）、`Log.h`（OI_TRACE/INFO/WARN/ERROR/CRITICAL，见 [日志](docs/日志.md)）、Application、Layer、LayerStack、Window、Input、Timer
+  - `Engine/Engine/Core/` — `Base.h`（OI_ENGINE_API / OI_ASSERT / Scope / Ref）、`Log.h`（OI_TRACE/INFO/WARN/ERROR/CRITICAL，见 [日志](docs/日志.md)）、Application、Layer、LayerStack、Window、Input、Timer
   - `Engine/Engine/Events/` — 事件系统（Event、ApplicationEvent、KeyEvent、MouseEvent）
   - `Engine/Engine/Audio/` — `Audio.h` / `Audio.cpp`：AudioEngine、AudioClip、SoundInstance（miniaudio 封装；见 [音频](docs/音频.md)）
   - `Engine/Engine/Math/` — `Random` / `UUID` 工具类；几何数学已迁移至 glm（见 [数学库](docs/数学库.md)），总入口是 `Engine/Engine/Math.h`
@@ -88,7 +88,7 @@ cmake --preset mingw-debug      # 或 mingw-release
 - 命名：宏 `OI_`；类成员 `m_` 前缀；数学类型直接用 glm 命名（`glm::vec3`、`glm::mat4` 等）
 - 风格：4 空格缩进，大括号不换行，`namespace OiEngine::Math {`
 - 注释：中文为主，glm 等来源的注释保留英文原文
-- `OI_API` 只用于**非模板类**（有 .cpp、需要跨 DLL 边界），如 `Random`、`UUID`；模板类型不要加（模板实例化的静态成员在 DLL 客户端无法链接）
+- `OI_ENGINE_API` 只用于**非模板类**（有 .cpp、需要跨 DLL 边界），如 `Random`、`UUID`；模板类型不要加（模板实例化的静态成员在 DLL 客户端无法链接）
 - 调试断言用 `OI_ASSERT(条件)`
 - 日志用 `OI_TRACE/OI_INFO/OI_WARN/OI_ERROR/OI_CRITICAL`；格式串必须是编译期字面量（`std::format` 的 consteval 检查），
   `glGetString()` 之类的 `const GLubyte*` 要先 `reinterpret_cast<const char*>`（详见 [日志](docs/日志.md)）
