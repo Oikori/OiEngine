@@ -15,8 +15,20 @@
 
 // 《永夜幸存者》——类《吸血鬼幸存者》的俯视角自动战斗生存游戏。
 //
-// 玩法：WASD 移动，武器自动索敌开火；击杀敌人掉落经验宝石，升级时从三张卡里选一项强化。
-// 撑到黎明（180 秒）即胜利。所有美术资源都是程序化几何，无图片依赖。
+// 玩法：WASD 移动，武器自动索敌开火；击杀敌人**直接获得经验**，掉落物是金币（刷新升级卡用）。
+// 升级时从三张卡里选一项强化；属性卡没有层数上限，但有品质（普通 / 高级 / 稀有 / 史诗）。
+// 撑到黎明（第 10 关结束）即胜利。所有美术资源都是程序化几何，无图片依赖。
+//
+// 代码分工（所有 .cpp 都只定义 SurvivorsLayer 的成员函数，共享本头文件）：
+//   SurvivorsGame.cpp     主循环 / 生命周期 / 音频 / 关卡推进 / 玩家 / 相机 / 输入
+//   SurvivorsEnemies.cpp  敌人：空间哈希、刷怪、移动与分离、接触伤害、Boss
+//   SurvivorsWeapons.cpp  武器：索敌、四把武器的开火与冷却、弹丸推进
+//   SurvivorsCombat.cpp   伤害与击杀、金币掉落与拾取、粒子 / 光环 / 伤害数字
+//   SurvivorsUpgrade.cpp  经验与升级卡（卡池、品质、整组刷新、属性结算）
+//   SurvivorsRender.cpp   世界渲染（程序化网格的绘制顺序与变换）
+//   SurvivorsUi.cpp       全部 ImGui 面板（标题 / HUD / 升级 / 暂停 / 结算 / 帮助 / 设置）
+//   SurvivorsArt.*        程序化几何库
+//   SurvivorsInternal.h   内部共享的调参表 / 调色板 / 小工具（不要 include 到工程外）
 namespace OiEngine::Survivors {
 
     // 跟随玩家的正交相机（世界单位与像素 1:1 于 900 高度基准）
@@ -52,6 +64,9 @@ namespace OiEngine::Survivors {
         enum class ShotKind { Blade, Scythe };
         enum class FxKind { Ring, Flash, Bolt };
         enum class UpgradeKind { Weapon, Passive, Heal };
+        // 卡片品质：作用于**属性卡（被动）与补给卡**，决定加成幅度与出现概率。
+        // 武器卡是固定的等级进阶，不带品质（tag 显示 Lv.N，颜色用武器色）。
+        enum class Rarity { Common = 0, Advanced, Rare, Epic, Count };
         // 音效槽：顺序与 cpp 里的 SFX_FILES / SFX_VOLUME / SFX_THROTTLE 一致
         enum class SfxId {
             Blade = 0, Storm, Hit, Kill, Pickup, LevelUp, Hurt,
@@ -72,6 +87,7 @@ namespace OiEngine::Survivors {
             float phase = 0.0f;
             float hitFlash = 0.0f;
             int xp = 1;
+            int coins = 1;      // 击杀后掉落的金币数量（经验是击杀当场直接给的）
             // 怪物只有防御（没有穿甲）：防御是固定值，减伤率 = 防御 / (防御 + 100)
             float defense = 0.0f;
             bool alive = true;
@@ -94,13 +110,14 @@ namespace OiEngine::Survivors {
             std::vector<uint32_t> hitIds;  // 回旋镰：同一把镰刀对同一敌人只结算一次
         };
 
-        struct Gem {
+        struct Coin {
             glm::vec2 position{ 0.0f, 0.0f };
             glm::vec2 velocity{ 0.0f, 0.0f };
-            float value = 1.0f;
+            int value = 1;
             float age = 0.0f;
+            float lifetime = 22.0f;   // 地上的金币会消失，避免刷出来的钱永远躺在场上
             float phase = 0.0f;
-            int tier = 0;
+            int tier = 0;             // 面额分档，只影响贴图大小
             bool alive = true;
         };
 
@@ -131,15 +148,23 @@ namespace OiEngine::Survivors {
             float age = 0.0f;
             float lifetime = 0.65f;
             bool crit = false;
+            bool gold = false;   // 金币拾取提示（金色 +N，不参与暴击判定）
         };
 
         struct UpgradeOption {
             UpgradeKind kind = UpgradeKind::Passive;
             int index = 0;
+            Rarity rarity = Rarity::Common;
             std::string tag;
             std::string title;
             std::string description;
             glm::vec4 color{ 0.5f, 0.5f, 0.5f, 1.0f };
+        };
+
+        // 属性卡的单张加成（primary / secondary 的含义随被动不同，见 PassiveGainFor）
+        struct PassiveGain {
+            float primary = 0.0f;
+            float secondary = 0.0f;
         };
 
         // 敌人空间哈希：避免 400+ 敌人时的 O(n²) 邻近查询
@@ -198,7 +223,7 @@ namespace OiEngine::Survivors {
         void UpdateEnemies(float deltaTime);
         void UpdateWeapons(float deltaTime);
         void UpdateProjectiles(float deltaTime);
-        void UpdateGems(float deltaTime);
+        void UpdateCoins(float deltaTime);
         void UpdateParticles(float deltaTime);
         void UpdateEffects(float deltaTime);
         void UpdateContactDamage(float deltaTime);
@@ -218,7 +243,7 @@ namespace OiEngine::Survivors {
         void SpawnEnemy(EnemyType type, const glm::vec2& position);
         void SpawnBoss();
         glm::vec2 EdgeSpawnPoint(float margin);
-        void SpawnGem(const glm::vec2& position, int value, bool burst);
+        void SpawnCoin(const glm::vec2& position, int value, bool burst);
         void SpawnParticles(const glm::vec2& position, int count, const glm::vec4& color,
                             float speed, float size, float lifetime, float zBias = 0.0f);
         void SpawnRing(const glm::vec2& position, float radius, float lifetime,
@@ -226,13 +251,22 @@ namespace OiEngine::Survivors {
         void SpawnFlash(const glm::vec2& position, float radius, float lifetime,
                         const glm::vec4& color);
         void SpawnDamageNumber(const glm::vec2& position, float value, bool crit);
+        void SpawnCoinNumber(const glm::vec2& position, int value);
         void GainExp(int amount);
 
         // ---- 升级 ----
         void StartLevelUp();
-        void BuildUpgradeOptions();
+        void BuildUpgradeOptions(const std::vector<UpgradeOption>& avoid = {});
+        std::vector<UpgradeOption> BuildUpgradePool() const;   // 当前可选的全部卡（未定品质、未洗牌）
+        UpgradeOption RollOption(const UpgradeOption& base);   // 给一张基础卡掷品质并生成文案
+        Rarity RollRarity();
+        int RerollCost() const;                                // 本次选取下一次刷新要花的金币
+        void RerollOptions();                                  // 花金币整组重抽三张
+        static bool SameCard(const UpgradeOption& a, const UpgradeOption& b);
+        static PassiveGain PassiveGainFor(int passive, float multiplier);
+        static float HealFraction(Rarity rarity);              // 血之祭按品质回复多少比例
         void ApplyUpgrade(int optionIndex);
-        void DescribePassive(int passive, std::string& title, std::string& desc) const;
+        void DescribePassive(int passive, float multiplier, std::string& title, std::string& desc) const;
 
         // ---- 渲染 ----
         void DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& transform,
@@ -240,7 +274,7 @@ namespace OiEngine::Survivors {
         void RenderWorld();
         void DrawBackground();
         void DrawGround();
-        void DrawGems();
+        void DrawCoins();
         void DrawEnemies();
         void DrawPlayer();
         void DrawProjectiles();
@@ -282,8 +316,9 @@ namespace OiEngine::Survivors {
             float penPercent = 0.0f;        // 百分比穿甲（0~1）
         };
 
-        // 开局裸值：ResetRun 重置成它；百分比型成长（移速 / 拾取半径）的每级步长也按它的比例给，
-        // 这样 5 级累计仍是线性加成，不会随当前值复利膨胀。（定义在 SurvivorsGame.cpp）
+        // 开局裸值：ResetRun 重置成它；百分比型成长（移速 / 拾取半径）的每张卡步长也按它的比例给，
+        // 加成是线性叠加而不是复利膨胀（属性卡没有层数上限，靠 MOVE_CAP / 暴击上限兜底）。
+        // （定义在 SurvivorsGame.cpp）
         static const BaseStats BARE_STATS;
 
         // 成长写进基础属性后调用：同步生命上限并钳制当前血量（不做任何乘算）
@@ -337,10 +372,15 @@ namespace OiEngine::Survivors {
         float m_levelFlash = 0.0f;
         float m_levelUpLockout = 0.0f;   // 关闭升级面板后的缓冲时间（秒）
 
+        // 金币：击杀掉落、走近自动吸取；升级面板里刷新卡片的唯一货币
+        int m_coins = 0;
+        int m_coinsEarned = 0;   // 本局累计获得（结算面板展示）
+        int m_rerollCount = 0;   // **本次选取**已刷新次数（每次开面板清零），刷新价 = 4 + 3 × 它
+
         // 场上的东西
         std::vector<Enemy> m_enemies;
         std::vector<Projectile> m_projectiles;
-        std::vector<Gem> m_gems;
+        std::vector<Coin> m_coinDrops;
         std::vector<Particle> m_particles;
         std::vector<Fx> m_effects;
         std::vector<DamageNumber> m_damageNumbers;

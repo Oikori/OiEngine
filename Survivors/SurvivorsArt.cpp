@@ -45,9 +45,10 @@ namespace {
     const glm::vec4 SCYTHE_OUTER(0.72f, 0.36f, 0.98f, 1.0f);
     const glm::vec4 SCYTHE_INNER(0.98f, 0.82f, 1.00f, 1.0f);
 
-    const glm::vec4 GEM_SMALL(0.42f, 0.86f, 1.00f, 1.0f);
-    const glm::vec4 GEM_MEDIUM(0.48f, 1.00f, 0.62f, 1.0f);
-    const glm::vec4 GEM_LARGE(0.88f, 0.50f, 1.00f, 1.0f);
+    const glm::vec4 COIN_RIM(0.84f, 0.60f, 0.18f, 1.0f);
+    const glm::vec4 COIN_FACE(1.00f, 0.82f, 0.36f, 1.0f);
+    const glm::vec4 COIN_MARK(0.70f, 0.46f, 0.13f, 1.0f);
+    const glm::vec4 COIN_SHINE(1.00f, 0.98f, 0.86f, 0.95f);
 
     const glm::vec4 TOMB_STONE(0.26f, 0.25f, 0.34f, 1.0f);
     const glm::vec4 TOMB_EDGE(0.38f, 0.37f, 0.48f, 1.0f);
@@ -434,16 +435,15 @@ namespace {
         return BuildMesh(builder);
     }
 
-    Ref<VertexArray> CreateGem(const glm::vec4& color)
+    // 金币掉落物：暗金边 + 亮金盘面 + 中心凹刻 + 左上高光。
+    // 整枚按 age 缓慢旋转，高光跟着打圈，远看就是一枚在地上反光的钱币
+    Ref<VertexArray> CreateCoin()
     {
         MeshBuilder builder;
-        builder.AddDiamond({ 0.0f, 0.0f }, 0.34f, 0.50f, color, 0.0f);
-        // 内芯：亮一档
-        const glm::vec4 inner(std::min(color.x + 0.35f, 1.0f), std::min(color.y + 0.35f, 1.0f),
-                              std::min(color.z + 0.35f, 1.0f), 1.0f);
-        builder.AddDiamond({ 0.0f, 0.02f }, 0.16f, 0.26f, inner, 0.01f);
-        builder.AddTriangle({ 0.0f, 0.40f }, { 0.10f, 0.06f }, { -0.10f, 0.06f },
-                            glm::vec4(1.0f, 1.0f, 1.0f, 0.85f), 0.02f);
+        builder.AddCircle({ 0.0f, 0.0f }, 0.46f, 28, COIN_RIM, 0.0f);
+        builder.AddCircle({ 0.0f, 0.0f }, 0.36f, 28, COIN_FACE, 0.01f);
+        builder.AddDiamond({ 0.0f, 0.0f }, 0.10f, 0.18f, COIN_MARK, 0.02f);
+        builder.AddDiamond({ -0.17f, 0.16f }, 0.045f, 0.085f, COIN_SHINE, 0.03f);
         return BuildMesh(builder);
     }
 
@@ -639,9 +639,7 @@ namespace OiEngine::Survivors {
 
         blade = CreateBlade();
         scythe = CreateScythe();
-        gemSmall = CreateGem(GEM_SMALL);
-        gemMedium = CreateGem(GEM_MEDIUM);
-        gemLarge = CreateGem(GEM_LARGE);
+        coin = CreateCoin();
 
         disc = CreateDisc();
         particle = disc;
@@ -667,9 +665,7 @@ namespace OiEngine::Survivors {
         boss.reset();
         blade.reset();
         scythe.reset();
-        gemSmall.reset();
-        gemMedium.reset();
-        gemLarge.reset();
+        coin.reset();
         particle.reset();
         disc.reset();
         ring.reset();

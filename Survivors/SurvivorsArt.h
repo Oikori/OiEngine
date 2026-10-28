@@ -16,9 +16,7 @@ namespace OiEngine::Survivors {
 
         Ref<VertexArray> blade;         // 月刃投射物
         Ref<VertexArray> scythe;        // 回旋镰投射物
-        Ref<VertexArray> gemSmall;      // 经验宝石（三档）
-        Ref<VertexArray> gemMedium;
-        Ref<VertexArray> gemLarge;
+        Ref<VertexArray> coin;          // 金币掉落物（击杀敌人后落在地上，刷新升级卡用）
 
         Ref<VertexArray> particle;      // 径向光点（u_Falloff 生效）
         Ref<VertexArray> disc;          // 实心圆（半径 1）
