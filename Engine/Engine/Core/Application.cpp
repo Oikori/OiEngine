@@ -37,6 +37,9 @@ namespace OiEngine {
 
     void Application::Init(const ApplicationSpecification& specification)
 	{
+	    // 日志系统初始化
+	    Logger::Init();
+
 	    m_specification = specification;
 	    m_running = true;
 	    m_shutdown = false;  // 允许 Shutdown 后重新 Init / Run

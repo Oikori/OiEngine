@@ -137,7 +137,7 @@ OiEngine/
 | [glm](https://github.com/icaven/glm) | 数学库 | submodule（`master`） |
 | [stb_image](https://github.com/nothings/stb) | 图像加载 | 直接入库 |
 | [miniaudio](https://github.com/mackron/miniaudio) | 音频 | 直接入库 |
-| [spdlog](https://github.com/gabime/spdlog) | 随 vendor 构建（日志当前由自研 `OI_*` 承担） | submodule（`v1.x`） |
+| [spdlog](https://github.com/gabime/spdlog) | 日志后端（`OI_*` 宏的彩色控制台 + 文件轮转输出） | submodule（`v1.x`） |
 
 更新子模块：`git submodule update --remote vendor/glfw`（其余同理）。
 
