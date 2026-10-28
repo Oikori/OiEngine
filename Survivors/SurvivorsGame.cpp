@@ -548,7 +548,7 @@ void SurvivorsLayer::OnEvent(Event& event)
         // ESC 不直接退出：暂停并弹出菜单，由玩家选择继续 / 重新开始 / 退出
         if (m_state == State::Playing) {
             m_state = State::Paused;
-            m_pauseGuardFrames = 2;
+            m_pauseGuardTime = 0.25f;
         } else if (m_state == State::Paused) {
             m_state = State::Playing;
         }
@@ -563,7 +563,7 @@ void SurvivorsLayer::OnEvent(Event& event)
     if (key == Key::P) {
         if (m_state == State::Playing) {
             m_state = State::Paused;
-            m_pauseGuardFrames = 2;
+            m_pauseGuardTime = 0.25f;
         } else if (m_state == State::Paused) {
             m_state = State::Playing;
         }

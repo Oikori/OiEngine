@@ -21,7 +21,7 @@ C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（
 | [体积云](docs/体积云.md) | VolumetricCloudDemo 的地形 / 云层 / 管线 / 参数 |
 | [平台跳跃](docs/平台跳跃.md) | 手感三要素、移动平台、尖刺与存档点 |
 | [幸存者](docs/幸存者.md) | Survivors 的玩法、属性、输入、敌人管理与渲染 |
-| [ImGui 与输入](docs/ImGui与输入.md) | ImGui 集成、中文字体、IME 吞键与自动化输入 |
+| [ImGui 与输入](docs/ImGui与输入.md) | ImGui 集成、中文字体、IME（解绑输入法 + 物理按键兜底）与自动化输入 |
 | [数学库](docs/数学库.md) | glm 用法、include 陷阱、数学测试约定 |
 | [日志](docs/日志.md) | `OI_*` 宏、格式串与 GL 调试输出 |
 | [音频](docs/音频.md) | miniaudio 集成、2D / 3D 声源、decode / stream 资源模型、PlaneGame 音效示例 |
@@ -107,7 +107,10 @@ cmake --preset mingw-debug      # 或 mingw-release
 ## 协作习惯
 
 - 改动后做**验证**：全量构建通过 + 相关可执行程序（SandBox / Platformer / Survivors）运行观察；可编译期验证的尽量 `static_assert`
-- 自动化验证（注入按键 / 截图）优先用**鼠标点击**而不是模拟键盘：中文输入法会吞按键，
-  见 [ImGui 与输入](docs/ImGui与输入.md) 的「输入法」一节（`keybd_event` 也可能被吞，且窗口非前台时 `PostMessage` 不生效）
+- 自动化验证（注入按键 / 截图）优先用**鼠标点击**而不是模拟键盘：引擎虽然解绑了 IME 并加了物理按键兜底，
+  但注入的按键仍可能被系统/输入法环境吞掉，且窗口非前台时 `PostMessage` 不生效；
+  必须先 `SetForegroundWindow`，见 [ImGui 与输入](docs/ImGui与输入.md) 的「输入法」一节
 - 回复用中文，结论先行，专业名词保留英文
+- **不要自动 `git commit`**：改动做完就留在工作区，只有用户明确要求（「commit 一下」「提交」）时才提交；
+  也不要顺手 `git add` 之外的仓库操作（push / 改分支 / 重置历史）
 - 发现明显 bug 可以顺手修复并说明（用户接受「修复 + 报告」的方式）；改动保持与现有风格一致、尽量最小

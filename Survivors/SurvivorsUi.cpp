@@ -190,7 +190,7 @@ void SurvivorsLayer::RenderHelp()
 
         ImGui::Dummy(ImVec2(0.0f, 14.0f));
         const float buttonWidth = ImGui::GetContentRegionAvail().x;
-        if (ImGui::Button("关 闭   (ESC)", ImVec2(buttonWidth, 38.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (ImGui::Button("关 闭   (ESC)", ImVec2(buttonWidth, 38.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             m_showHelp = false;
         }
         ImGui::TextColored(colDim, "标题界面与暂停菜单都可以再次打开本说明");
@@ -252,7 +252,7 @@ void SurvivorsLayer::RenderOptions()
 
         ImGui::Dummy(ImVec2(0.0f, 14.0f));
         const float buttonWidth = ImGui::GetContentRegionAvail().x;
-        if (ImGui::Button("关 闭   (ESC)", ImVec2(buttonWidth, 38.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (ImGui::Button("关 闭   (ESC)", ImVec2(buttonWidth, 38.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             m_showOptions = false;
         }
     }
@@ -632,7 +632,7 @@ void SurvivorsLayer::RenderPause()
                       m_baseStats.defense, DefenseReduction(m_baseStats.defense) * 100.0f);
         std::snprintf(penText, sizeof(penText), "%.0f 点 / %.0f%%",
                       m_baseStats.penFlat, m_baseStats.penPercent * 100.0f);
-        std::snprintf(coinText, sizeof(coinText), "%d 枚 · 刷新 %d 币", m_coins, RerollCost());
+        std::snprintf(coinText, sizeof(coinText), "%d 枚", m_coins);
 
         const ImVec4 statLabel(0.58f, 0.62f, 0.76f, 1.0f);
         const ImVec4 statValue(0.92f, 0.94f, 1.00f, 1.0f);
@@ -735,12 +735,14 @@ void SurvivorsLayer::RenderPause()
         }
         ImGui::PopStyleColor(3);
 
-        // 暂停菜单出现时 ImGui 可能吃掉键盘事件，这里直接用 ImGui 的输入状态补一条 ESC/P 继续；
-        // 开面板的同一帧仍可能在队列里，用几帧宽限期避开；帮助 / 设置面板打开时 ESC/P 只关面板
-        if (m_pauseGuardFrames > 0) {
-            --m_pauseGuardFrames;
+        // 暂停菜单出现时 ImGui 可能吃掉键盘事件，这里用 ImGui 的输入状态补一条 ESC/P 继续。
+        // 注意用的是「按键真正按下那一帧」（repeat = false），并且开面板后给一段**时间**宽限：
+        // 系统消息可能比物理按键状态晚到几帧，宽限期太短会让同一个 ESC 把菜单又关掉（菜单一闪而过）。
+        // 帮助 / 设置面板打开时 ESC/P 只关面板
+        if (m_pauseGuardTime > 0.0f) {
+            m_pauseGuardTime = std::max(0.0f, m_pauseGuardTime - ImGui::GetIO().DeltaTime);
         } else if (!m_showHelp && !m_showOptions &&
-                   (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_P))) {
+                   (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_P, false))) {
             m_state = State::Playing;
         }
     }

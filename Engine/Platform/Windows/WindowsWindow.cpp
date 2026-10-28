@@ -2,10 +2,17 @@
 
 #include <GLFW/glfw3.h>
 
+// 取 HWND 需要 GLFW 的平台扩展（必须在包含前定义），IME 相关 API 在 imm.h
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#include <imm.h>
+
 #include "Engine/Events/ApplicationEvent.h"
 #include "Engine/Events/MouseEvent.h"
 #include "Engine/Events/KeyEvent.h"
 #include "Engine/Renderer/Renderer.h"
+
+#include "WindowsKeyboard.h"
 
 namespace OiEngine {
 	static uint8_t s_GLFWWindowCount = 0;
@@ -45,6 +52,13 @@ namespace OiEngine {
 	    m_window = win;
 		++s_GLFWWindowCount;
 
+		// 游戏窗口默认不挂输入法：中文输入法激活时，WASD / 数字键会先被组词流程吃掉，
+		// GLFW 收不到 WM_KEYDOWN，游戏里就表现为「按键没反应」。
+		// 真要做文本输入的工程自己调 SetImeEnabled(true)（见 Window.h 的说明与 docs/ImGui与输入.md）
+		m_hwnd = glfwGetWin32Window(win);
+		SetImeEnabled(false);
+		OI_INFO("窗口已禁用 IME：中文输入法不会再吞掉 WASD / 数字键");
+
 		m_context = GraphicsContext::Create(win);
 
 		glfwSetWindowUserPointer(win, this);
@@ -72,6 +86,12 @@ namespace OiEngine {
 
 		glfwSetKeyCallback(win, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
 			auto* pWin = (WindowsWindow*)glfwGetWindowUserPointer(window);
+
+			// 游戏按键由物理通道（WindowsKeyboard）统一上报：GLFW 这条会漏收（输入法吞键）、
+			// 也可能把「漏收抬起后的再次按下」判成 REPEAT，所以整类键的事件一律丢弃，避免双份 / 错判
+			if (Detail::IsPhysicalKey(key)) {
+				return;
+			}
 
 			switch (action) {
 				case GLFW_PRESS: {
@@ -157,6 +177,12 @@ namespace OiEngine {
 	void WindowsWindow::OnUpdate()
 	{
 		glfwPollEvents();
+
+		// 输入法（或别的钩子）可能把按键吃掉，GLFW 收不到 WM_KEYDOWN：
+		// 每帧用物理按键状态产生按键事件（见 WindowsKeyboard.h）
+		Detail::SyncPhysicalKeys(glfwGetWindowAttrib(static_cast<GLFWwindow*>(m_window), GLFW_FOCUSED) == GLFW_TRUE,
+		                         m_eventCallback);
+
 		m_context->SwapBuffers();
 	}
 
@@ -174,5 +200,17 @@ namespace OiEngine {
 	bool WindowsWindow::IsVSync() const
 	{
 		return m_vsync;
+	}
+
+	void WindowsWindow::SetImeEnabled(bool enabled)
+	{
+		if (m_hwnd == nullptr) {
+			return;
+		}
+
+		// enabled = IACE_DEFAULT：把默认输入法上下文挂回窗口（可以打中文，候选窗由 ImGui 定位）；
+		// 否则传 0：把上下文从窗口上解绑，输入法完全不接触这个窗口的按键
+		ImmAssociateContextEx(static_cast<HWND>(m_hwnd), nullptr, enabled ? IACE_DEFAULT : 0);
+		OI_TRACE("窗口 IME {0}", enabled ? "已启用" : "已禁用");
 	}
 }

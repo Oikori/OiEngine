@@ -42,6 +42,9 @@ namespace OiEngine {
         const bool glfwOk = ImGui_ImplGlfw_InitForOpenGL(window, true);
         const bool glOk = ImGui_ImplOpenGL3_Init(GLSL_VERSION);
 
+        // IME 候选窗定位：ImGui 的 Platform_SetImeDataFn 需要原生窗口句柄（Win32: HWND）
+        ImGui::GetMainViewport()->PlatformHandleRaw = Application::Get().GetWindow().GetNativeDisplayHandle();
+
         OI_ASSERT(glfwOk, "Failed to initialize ImGui GLFW backend!");
         OI_ASSERT(glOk, "Failed to initialize ImGui OpenGL3 backend!");
         m_initialized = glfwOk && glOk;

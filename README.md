@@ -31,7 +31,7 @@
 **框架**
 
 - `Application` / `Layer` / `LayerStack` 分层与事件系统，Dear ImGui 作为内置 overlay
-- 窗口、输入、计时、`OI_ASSERT`；ImGui 中文字体与 IME 吞键处理
+- 窗口、输入、计时、`OI_ASSERT`；ImGui 中文字体与 IME（解绑输入法 + 物理按键兜底）
 - `Random` / `UUID` 工具类，几何数学统一用 glm
 
 **音频与内容**
@@ -122,7 +122,7 @@ OiEngine/
 | [室内多光源渲染方案](docs/室内多光源渲染方案.md) | IndoorDemo 的设计取舍与实施记录 |
 | [平台跳跃](docs/平台跳跃.md) | 手感三要素、移动平台、尖刺与存档点 |
 | [幸存者](docs/幸存者.md) | 玩法、属性、输入、敌人管理 |
-| [ImGui 与输入](docs/ImGui与输入.md) | ImGui 集成、中文字体、IME 吞键 |
+| [ImGui 与输入](docs/ImGui与输入.md) | ImGui 集成、中文字体、IME（解绑输入法 + 物理按键兜底） |
 | [数学库](docs/数学库.md) | glm 用法、include 陷阱、测试约定 |
 | [日志](docs/日志.md) | `OI_*` 宏、格式串与 GL 调试输出 |
 | [音频](docs/音频.md) | miniaudio 集成、2D / 3D 声源、资源模型 |

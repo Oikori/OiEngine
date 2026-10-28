@@ -336,7 +336,7 @@ namespace OiEngine::Survivors {
         // ---- 数据 ----
         bool m_active = true;
         State m_state = State::Playing;
-        int m_pauseGuardFrames = 0;   // 刚进入暂停的几帧内忽略 ESC/P，避免同一按键立刻关掉菜单
+        float m_pauseGuardTime = 0.0f;   // 刚进入暂停的宽限时间（秒）：这几帧内忽略 ESC/P，避免同一按键立刻关掉菜单（消息可能比物理状态晚到几帧）
 
         SurvivorsArt m_art;
         Ref<Shader> m_shader;

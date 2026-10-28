@@ -34,6 +34,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     stb_image
     imgui
     miniaudio
+    imm32      # IME：ImmAssociateContextEx（窗口级开关输入法，见 WindowsWindow::SetImeEnabled）
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
     glm
