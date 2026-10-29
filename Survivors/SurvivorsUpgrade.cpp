@@ -93,7 +93,8 @@ SurvivorsLayer::UpgradeOption SurvivorsLayer::RollOption(const UpgradeOption& ba
     const int rarityIndex = static_cast<int>(option.rarity);
     const float multiplier = RARITY_MULTIPLIER[rarityIndex];
     option.color = RARITY_COLORS[rarityIndex];
-    option.tag = std::format("{} · 加成 ×{:.1f}", RARITY_NAMES[rarityIndex], multiplier);
+    // 标签只给品质名：加成倍率是内部数值，卡片上不再显示（层数同理，见 DescribePassive）
+    option.tag = RARITY_NAMES[rarityIndex];
     DescribePassive(option.index, multiplier, option.title, option.description);
     return option;
 }
@@ -190,10 +191,8 @@ SurvivorsLayer::PassiveGain SurvivorsLayer::PassiveGainFor(int passive, float mu
 
 void SurvivorsLayer::DescribePassive(int passive, float multiplier, std::string& title, std::string& description) const
 {
-    const int stacks = m_passive[passive] + 1;   // 选下这张卡之后的总层数
-    title = stacks > 1
-        ? std::format("{} · {} 层", PASSIVE_NAMES[passive], stacks)
-        : std::string(PASSIVE_NAMES[passive]);
+    // 卡片不显示「当前层数」：标题就是被动名，层数只留在 m_passive 里（结算与调试用）
+    title = PASSIVE_NAMES[passive];
 
     const PassiveGain gain = PassiveGainFor(passive, multiplier);
     switch (static_cast<PassiveId>(passive)) {
@@ -257,7 +256,7 @@ void SurvivorsLayer::ApplyUpgrade(int optionIndex)
     const UpgradeOption option = m_options[optionIndex];
     const float multiplier = RARITY_MULTIPLIER[static_cast<int>(option.rarity)];
 
-    ++m_passive[option.index];   // 属性卡没有上限，层数只用于展示与描述
+    ++m_passive[option.index];   // 属性卡没有上限；层数只记在 m_passive 里，不再显示在卡片上
     // 成长直接累加进基础属性：百分比型步长按开局裸值取比例，线性叠加（不随当前值复利）
     const PassiveGain gain = PassiveGainFor(option.index, multiplier);
     switch (static_cast<PassiveId>(option.index)) {

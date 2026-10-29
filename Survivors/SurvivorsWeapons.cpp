@@ -125,6 +125,7 @@ bool SurvivorsLayer::ThrowScythes()
 bool SurvivorsLayer::CastStorm()
 {
     const int level = m_weaponLevel[static_cast<int>(WeaponId::Storm)];
+    // 落点候选：玩家周围 620 内的敌人，每道雷随机挑一只作为**落点**
     std::vector<uint32_t> targets;
     m_grid.ForEachNear(m_playerPosition, 620.0f, [&](uint32_t index) {
         if (index >= m_enemies.size()) {
@@ -141,27 +142,42 @@ bool SurvivorsLayer::CastStorm()
     }
 
     const int strikes = STORM.count[level];
+    const float radius = STORM.radius[level];
+    const float damage = STORM.damage[level] * DamageMul();
     for (int strike = 0; strike < strikes && !targets.empty(); ++strike) {
         const int pick = RandInt(0, static_cast<int>(targets.size()) - 1);
-        Enemy& enemy = m_enemies[targets[pick]];
+        const uint32_t targetIndex = targets[static_cast<size_t>(pick)];
         targets.erase(targets.begin() + pick);
-        if (!enemy.alive) {
+        if (targetIndex >= m_enemies.size() || !m_enemies[targetIndex].alive) {
             continue;
         }
+        // 落点取一份拷贝：接下来会改敌人状态（命中、死亡），位置本身不该被遮住
+        const glm::vec2 impact = m_enemies[targetIndex].position;
 
-        const bool crit = Rand(0.0f, 1.0f) < CritChance();
-        DamageEnemy(enemy, STORM.damage[level] * DamageMul() * (crit ? CritMultiplier() : 1.0f), crit);
+        // **范围伤害**：以落点为中心，半径内所有敌人各自结算一次（逐只掷暴击）
+        m_grid.ForEachNear(impact, radius, [&](uint32_t index) {
+            if (index >= m_enemies.size()) {
+                return;
+            }
+            Enemy& enemy = m_enemies[index];
+            if (!enemy.alive || !CircleHit(enemy.position, enemy.radius, impact, radius)) {
+                return;
+            }
+            const bool crit = Rand(0.0f, 1.0f) < CritChance();
+            DamageEnemy(enemy, damage * (crit ? CritMultiplier() : 1.0f), crit);
+        });
 
         Fx bolt;
         bolt.kind = FxKind::Bolt;
-        bolt.position = enemy.position;
+        bolt.position = impact;
         bolt.radius = 260.0f;
         bolt.lifetime = 0.30f;
         bolt.color = C_STORM;
         m_effects.push_back(bolt);
 
-        SpawnRing(enemy.position, 110.0f, 0.32f, C_STORM);
-        SpawnParticles(enemy.position, 6, C_STORM, 220.0f, 8.0f, 0.4f);
+        // 冲击环的半径就是真实伤害范围：一眼能看出这一道雷覆盖多大
+        SpawnRing(impact, radius, 0.32f, C_STORM);
+        SpawnParticles(impact, 6, C_STORM, 220.0f, 8.0f, 0.4f);
         m_shake = std::max(m_shake, 4.0f);
     }
     PlaySfx(SfxId::Storm);

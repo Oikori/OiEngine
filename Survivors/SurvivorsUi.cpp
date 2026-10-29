@@ -90,7 +90,7 @@ void SurvivorsLayer::RenderTitle()
             ResetRun();   // → 选角色 + 武器
         }
         ImGui::PopStyleColor(3);
-        ImGui::TextColored(ImVec4(0.58f, 0.62f, 0.78f, 0.9f), "开局先选一个角色和一把武器");
+        ImGui::Dummy(ImVec2(0.0f, 6.0f));
 
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.20f, 0.32f, 1.0f));
@@ -357,15 +357,15 @@ void SurvivorsLayer::RenderHelp()
 
         section("操作");
         body("WASD / 方向键移动   ·   武器自动索敌开火，无需攻击键");
-        body("升级时点击卡片选择（或按 1 / 2 / 3）；面板下方的「刷新全部三张」花金币整组重抽");
-        body("选武器点卡片（或按 1 / 2 / 3 / 4）；商店点「购买」，ESC / Enter 离开商店");
-        body("ESC 暂停 / 继续   ·   R 重开一局（回到选角界面）   ·   F4 调试面板");
+        body("升级时点击卡片选择（或按 1 / 2 / 3）；面板下方的「刷新全部三张」花金币整组重抽（快捷键 R）");
+        body("选武器点卡片（或按 1 / 2 / 3 / 4）；商店点「购买」，R 整组刷新货位，ESC / Enter 离开商店");
+        body("ESC 暂停 / 继续   ·   R 重开一局（回到选角界面；面板里 R 是整组刷新）   ·   F4 调试面板");
 
         section("成长：经验、升级卡、武器");
         body("击杀敌人当场获得经验，并掉落金币（走近自动吸取，22 秒后散掉）。金币用于刷新升级卡、刷新商店、买道具。");
         body("每次升级给三张属性卡三选一；刷新价 = 4 + 3 × 本次已刷新次数。武器与「立即回复」已不在升级卡池里。");
         body("属性卡九种：力量 / 急速 / 疾行 / 体魄 / 磁石 / 幸运 / 回春 / 铁壁 / 破甲，没有层数上限。");
-        body("武器四把：月刃（直线穿透）/ 圣光环（近身脉冲）/ 回旋镰（往返切割）/ 雷暴（随机落雷），各自最高 5 级。");
+        body("武器四把：月刃（直线穿透）/ 圣光环（近身脉冲）/ 回旋镰（往返切割）/ 雷暴（范围落雷），各自最高 5 级。");
 
         section("道具");
         body("每关通关后开商店，一次摆 4 件道具（角色不卖），可以整组刷新（6 + 4 × 本次已刷新次数）。");
@@ -373,6 +373,12 @@ void SurvivorsLayer::RenderHelp()
         body("稀有度是每件道具固定的档位（普通 / 高级 / 稀有 / 史诗）：铁片永远是高级、血袋永远是普通，");
         body("它只决定价格与刷出来的概率，效果是道具自身的固定数值。");
         body("价格 12 / 22 / 40 / 66 起，并随关卡上浮（+10%/关，与金币收入同步）；越稀有的越难出现在货架上。");
+
+        section("事件与事件道具");
+        body("游戏里会发生四类事件：击杀敌人、拾取金币、受到伤害、通过一关。部分道具挂在事件上：");
+        body("噬魂匕（每次击杀回血）· 哀嚎钟（每 12 杀向周围发出音波）· 铸币者之锤（每 10 枚金币额外铸币）·");
+        body("拾荒护符（每 10 枚金币回血）· 贪欲之链（每次拾币向周围震出金币碎片）· 受难者圣痕（每 5 次受伤暗焰反击）·");
+        body("黎明誓约（每过一关永久 +伤害 / +生命上限，并回血）。阈值型道具的触发进度、四类事件的累计次数都在暂停菜单的「事件」一栏。");
 
         section("属性与品质");
         body("升级卡（属性卡）有品质：普通 / 高级 / 稀有 / 史诗，加成倍率 1.0 / 1.6 / 2.4 / 3.5，等级越高越容易出高品质。");
@@ -678,6 +684,9 @@ void SurvivorsLayer::RenderHud()
                         m_shopPending ? "待开" : "无");
             ImGui::Text("角色 %s   独特道具 %d 件   道具 %zu 种",
                         ItemName(m_character), UniqueHeld(), m_itemCount.size());
+            ImGui::Text("事件：击杀 %d · 拾币 %d 枚（%d 次）· 受伤 %d · 过关 %d",
+                        m_eventStats.kills, m_eventStats.coinValue, m_eventStats.coinPickups,
+                        m_eventStats.hurts, m_eventStats.stageClears);
             ImGui::Text("伤害总计 %.0f", m_damageDealt);
             ImGui::Text("玩家 (%.0f, %.0f)  HP %.0f", m_playerPosition.x, m_playerPosition.y, m_playerHp);
             ImGui::Separator();
@@ -705,6 +714,16 @@ void SurvivorsLayer::RenderHud()
             ImGui::SameLine();
             if (ImGui::Button("立刻过关")) {
                 m_stageTime = m_stageDuration;
+            }
+            // 事件道具的快速验证：直接把事件类道具塞进背包（无视商店与持有上限）
+            if (ImGui::Button("送事件道具")) {
+                const ItemId eventItems[] = {
+                    ItemId::SoulDagger, ItemId::WailingBell, ItemId::CoinHammer, ItemId::ScavengerCharm,
+                    ItemId::GreedChain, ItemId::MartyrStigma, ItemId::DawnPact,
+                };
+                for (const ItemId id : eventItems) {
+                    AcquireItem(id);
+                }
             }
             if (ImGui::Button("重新开始")) {
                 ResetRun();
@@ -775,7 +794,7 @@ void SurvivorsLayer::RenderLevelUp()
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 
-        // 标签：品质名 + 加成倍率（卡池里现在只有属性卡）
+        // 标签：品质名（卡池里现在只有属性卡；加成倍率与层数都不在卡片上显示）
         ImGui::TextColored(ImVec4(option.color.x, option.color.y, option.color.z, 1.0f), "%s", option.tag.c_str());
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
         ImGui::SetWindowFontScale(1.45f);
@@ -815,12 +834,12 @@ void SurvivorsLayer::RenderLevelUp()
         ImGui::BeginDisabled(!canReroll);
         char rerollLabel[64];
         std::snprintf(rerollLabel, sizeof(rerollLabel),
-                      canReroll ? "刷新全部三张  (%d 币)" : "刷新全部三张  (需 %d 币)", rerollCost);
+                      canReroll ? "刷新全部三张  (R · %d 币)" : "刷新全部三张  (需 %d 币)", rerollCost);
         if (ImGui::Button(rerollLabel, ImVec2(344.0f, 40.0f))) {
             rerollClicked = true;
         }
         ImGui::EndDisabled();
-        ImGui::TextColored(ImVec4(0.62f, 0.64f, 0.78f, 0.9f), "重抽三张 · 本次已刷 %d 次", m_rerollCount);
+        ImGui::TextColored(ImVec4(0.62f, 0.64f, 0.78f, 0.9f), "重抽三张 · 本次已刷 %d 次 · 快捷键 R", m_rerollCount);
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -1110,13 +1129,14 @@ void SurvivorsLayer::RenderShop()
         ImGui::BeginDisabled(m_coins < rerollCost);
         char rerollLabel[64];
         std::snprintf(rerollLabel, sizeof(rerollLabel),
-                      m_coins >= rerollCost ? "整组刷新  (%d 币)" : "整组刷新  (需 %d 币)", rerollCost);
+                      m_coins >= rerollCost ? "整组刷新  (R · %d 币)" : "整组刷新  (需 %d 币)", rerollCost);
         const bool rerollClicked = ImGui::Button(rerollLabel, ImVec2(300.0f, 42.0f));
         ImGui::EndDisabled();
         ImGui::PopStyleColor(3);
         ImGui::SameLine(0.0f, 12.0f);
         const bool leaveClicked = ImGui::Button("离开商店  (Enter)", ImVec2(220.0f, 42.0f));
-        ImGui::TextColored(ImVec4(0.62f, 0.64f, 0.78f, 0.9f), "本次已刷 %d 次 · 钱包 %d 币", m_shopRerolls, m_coins);
+        ImGui::TextColored(ImVec4(0.62f, 0.64f, 0.78f, 0.9f), "本次已刷 %d 次 · 钱包 %d 币 · 快捷键 R",
+                           m_shopRerolls, m_coins);
 
         if (rerollClicked) {
             RerollShop();   // 整组换新；货位数量可能变化，下一帧再画
@@ -1277,6 +1297,14 @@ void SurvivorsLayer::RenderPause()
             if (shown <= 0) {
                 ImGui::SameLine(0.0f, 10.0f);
                 ImGui::TextColored(ImVec4(0.50f, 0.54f, 0.64f, 0.9f), "暂无（每关通关后到商店买）");
+            }
+        }
+
+        // 事件：四类事件的累计次数 + 已持事件道具的触发进度（阈值型道具才显示 N / 阈值）
+        {
+            ImGui::TextColored(statLabel, "事件");
+            for (const std::string& line : EventSummary()) {
+                ImGui::TextColored(ImVec4(0.72f, 0.76f, 0.90f, 0.95f), "   %s", line.c_str());
             }
         }
 

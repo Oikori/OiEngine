@@ -20,36 +20,43 @@ using namespace OiEngine::Survivors;
 // ============================ 道具目录 ============================
 
 // 顺序必须与 SurvivorsLayer::ItemId 完全一致（下标就是 ItemId）：
-//   0 血袋 1 磨刀石 2 铁片 3 猎魂纹 4 追星靴 5 引魂灯
-//   6 血月徽记 7 疾风羽 8 圣杯 9 龙鳞
-//   10 不朽之心 11 荆棘之甲 12 贪婪之匣 13 猎月瞳
-//   14 守夜人 15 猎手 16 修女 17 术士
+//   0 血袋 1 磨刀石 2 铁片 3 猎魂纹 4 追星靴 5 引魂灯 6 铸币者之锤
+//   7 血月徽记 8 疾风羽 9 圣杯 10 龙鳞 11 噬魂匕 12 哀嚎钟 13 拾荒护符 14 受难者圣痕
+//   15 不朽之心 16 荆棘之甲 17 贪婪之匣 18 猎月瞳 19 贪欲之链 20 黎明誓约
+//   21 守夜人 22 猎手 23 修女 24 术士
 // 改枚举顺序时必须同步这张表，否则名字和效果会错位。
 // cap = 0 表示无持有上限；角色类不进商店，cap 只是占位。
 // rarity 是固定档位：普通 / 高级 / 稀有 / 史诗（独特类与角色类一律史诗）。
 const SurvivorsLayer::ItemDef SurvivorsLayer::ITEM_DEFS[static_cast<int>(ItemId::Count)] = {
     // 普通类：无持有上限
-    { "血袋",     ItemCategory::Normal,    Rarity::Common,   0, glm::vec4(0.90f, 0.32f, 0.36f, 1.0f) },
-    { "磨刀石",   ItemCategory::Normal,    Rarity::Common,   0, glm::vec4(0.72f, 0.78f, 0.92f, 1.0f) },
-    { "铁片",     ItemCategory::Normal,    Rarity::Advanced, 0, glm::vec4(0.58f, 0.66f, 0.78f, 1.0f) },
-    { "猎魂纹",   ItemCategory::Normal,    Rarity::Advanced, 0, glm::vec4(0.95f, 0.62f, 0.42f, 1.0f) },
-    { "追星靴",   ItemCategory::Normal,    Rarity::Advanced, 0, glm::vec4(0.62f, 0.88f, 1.00f, 1.0f) },
-    { "引魂灯",   ItemCategory::Normal,    Rarity::Common,   0, glm::vec4(0.58f, 0.92f, 0.86f, 1.0f) },
+    { "血袋",       ItemCategory::Normal,    Rarity::Common,   0, glm::vec4(0.90f, 0.32f, 0.36f, 1.0f) },
+    { "磨刀石",     ItemCategory::Normal,    Rarity::Common,   0, glm::vec4(0.72f, 0.78f, 0.92f, 1.0f) },
+    { "铁片",       ItemCategory::Normal,    Rarity::Advanced, 0, glm::vec4(0.58f, 0.66f, 0.78f, 1.0f) },
+    { "猎魂纹",     ItemCategory::Normal,    Rarity::Advanced, 0, glm::vec4(0.95f, 0.62f, 0.42f, 1.0f) },
+    { "追星靴",     ItemCategory::Normal,    Rarity::Advanced, 0, glm::vec4(0.62f, 0.88f, 1.00f, 1.0f) },
+    { "引魂灯",     ItemCategory::Normal,    Rarity::Common,   0, glm::vec4(0.58f, 0.92f, 0.86f, 1.0f) },
+    { "铸币者之锤", ItemCategory::Normal,    Rarity::Common,   0, glm::vec4(1.00f, 0.78f, 0.40f, 1.0f) },
     // 限制类：有持有上限
-    { "血月徽记", ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.88f, 0.28f, 0.42f, 1.0f) },
-    { "疾风羽",   ItemCategory::Limited,   Rarity::Rare,     3, glm::vec4(0.70f, 0.92f, 0.78f, 1.0f) },
-    { "圣杯",     ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.95f, 0.82f, 0.48f, 1.0f) },
-    { "龙鳞",     ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.52f, 0.72f, 0.95f, 1.0f) },
+    { "血月徽记",   ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.88f, 0.28f, 0.42f, 1.0f) },
+    { "疾风羽",     ItemCategory::Limited,   Rarity::Rare,     3, glm::vec4(0.70f, 0.92f, 0.78f, 1.0f) },
+    { "圣杯",       ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.95f, 0.82f, 0.48f, 1.0f) },
+    { "龙鳞",       ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.52f, 0.72f, 0.95f, 1.0f) },
+    { "噬魂匕",     ItemCategory::Limited,   Rarity::Advanced, 3, glm::vec4(0.86f, 0.36f, 0.52f, 1.0f) },
+    { "哀嚎钟",     ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.74f, 0.64f, 1.00f, 1.0f) },
+    { "拾荒护符",   ItemCategory::Limited,   Rarity::Advanced, 3, glm::vec4(0.58f, 0.86f, 0.66f, 1.0f) },
+    { "受难者圣痕", ItemCategory::Limited,   Rarity::Rare,     2, glm::vec4(0.92f, 0.44f, 0.40f, 1.0f) },
     // 独特类：全局只能持有一件，固定史诗
-    { "不朽之心", ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(1.00f, 0.42f, 0.46f, 1.0f) },
-    { "荆棘之甲", ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(0.92f, 0.46f, 0.72f, 1.0f) },
-    { "贪婪之匣", ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(1.00f, 0.78f, 0.36f, 1.0f) },
-    { "猎月瞳",   ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(0.66f, 0.60f, 1.00f, 1.0f) },
+    { "不朽之心",   ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(1.00f, 0.42f, 0.46f, 1.0f) },
+    { "荆棘之甲",   ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(0.92f, 0.46f, 0.72f, 1.0f) },
+    { "贪婪之匣",   ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(1.00f, 0.78f, 0.36f, 1.0f) },
+    { "猎月瞳",     ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(0.66f, 0.60f, 1.00f, 1.0f) },
+    { "贪欲之链",   ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(1.00f, 0.66f, 0.28f, 1.0f) },
+    { "黎明誓约",   ItemCategory::Unique,    Rarity::Epic,     1, glm::vec4(1.00f, 0.90f, 0.64f, 1.0f) },
     // 角色类：固定史诗，开局选择
-    { "守夜人",   ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.66f, 0.78f, 1.00f, 1.0f) },
-    { "猎手",     ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.62f, 0.90f, 0.66f, 1.0f) },
-    { "修女",     ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.96f, 0.88f, 0.70f, 1.0f) },
-    { "术士",     ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.86f, 0.52f, 1.00f, 1.0f) },
+    { "守夜人",     ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.66f, 0.78f, 1.00f, 1.0f) },
+    { "猎手",       ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.62f, 0.90f, 0.66f, 1.0f) },
+    { "修女",       ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.96f, 0.88f, 0.70f, 1.0f) },
+    { "术士",       ItemCategory::Character, Rarity::Epic,     1, glm::vec4(0.86f, 0.52f, 1.00f, 1.0f) },
 };
 
 const char* SurvivorsLayer::ItemName(ItemId id)
@@ -104,6 +111,16 @@ SurvivorsLayer::ItemGain SurvivorsLayer::ItemGainFor(ItemId id)
         case ItemId::GreedCoffin:  gain.primary = 1.00f; break;                          // 金币收益加成
         case ItemId::MoonshotPupil: gain.primary = 0.20f;                                // 暴击率
                                     gain.secondary = 0.60f; break;                       // 暴击伤害
+        // 事件类：数值只在对应事件发生时读取（触发间隔见 SurvivorsInternal.h 的 *_EVENT_STEP）
+        case ItemId::SoulDagger:     gain.primary = 0.35f; break;   // 每次击杀回复的生命
+        case ItemId::WailingBell:    gain.primary = 18.0f;  break;  // 每 12 杀的音波伤害
+        case ItemId::CoinHammer:     gain.primary = 1.0f;   break;  // 每 10 枚金币额外铸出的金币
+        case ItemId::ScavengerCharm: gain.primary = 2.0f;   break;  // 每 10 枚金币回复的生命
+        case ItemId::GreedChain:     gain.primary = 4.0f;   break;  // 每枚金币面额的伤害倍率
+        case ItemId::MartyrStigma:   gain.primary = 24.0f;          // 每 5 次受伤的暗焰伤害
+                                     gain.secondary = 0.06f; break; // 触发时回复的最大生命比例
+        case ItemId::DawnPact:       gain.primary = 0.04f;          // 每次过关永久 + 伤害
+                                     gain.secondary = 0.15f; break; // 每次过关回复的最大生命比例
         // 角色类
         case ItemId::CharWatchman: gain.primary = 24.0f; gain.secondary = 12.0f; break;  // 生命 / 防御
         case ItemId::CharHunter:   gain.primary = BARE_STATS.moveSpeed * 0.10f;          // 移速
@@ -165,6 +182,33 @@ void SurvivorsLayer::DescribeItem(ItemId id, std::string& title, std::string& de
         case ItemId::MoonshotPupil:
             description = std::format("暴击率 +{:.0f}% · 暴击伤害 +{:.0f}%。",
                                       gain.primary * 100.0f, gain.secondary * 100.0f);
+            break;
+        case ItemId::SoulDagger:
+            description = std::format("【击杀事件】每次击杀敌人回复 {:.2f} 生命。", gain.primary);
+            break;
+        case ItemId::WailingBell:
+            description = std::format("【击杀事件】每击杀 {} 个敌人，向周围 {:.0f} 范围发出哀嚎，造成 {:.0f} 点伤害。",
+                                      KILL_EVENT_STEP, BELL_RADIUS, gain.primary);
+            break;
+        case ItemId::CoinHammer:
+            description = std::format("【拾金事件】每累计拾取 {} 枚金币，额外铸出 {:.0f} 枚金币（直接进钱包）。",
+                                      COIN_EVENT_STEP, gain.primary);
+            break;
+        case ItemId::ScavengerCharm:
+            description = std::format("【拾金事件】每累计拾取 {} 枚金币，回复 {:.0f} 点生命。",
+                                      COIN_EVENT_STEP, gain.primary);
+            break;
+        case ItemId::GreedChain:
+            description = std::format("【拾金事件】每次拾取金币，向周围 {:.0f} 范围震出金币碎片：伤害 = 金币面额 × {:.0f}。",
+                                      GREED_CHAIN_RADIUS, gain.primary);
+            break;
+        case ItemId::MartyrStigma:
+            description = std::format("【受伤事件】每受到 {} 次伤害，向周围 {:.0f} 范围释放暗焰：伤害 {:.0f} · 回复 {:.0f}% 最大生命。",
+                                      HURT_EVENT_STEP, STIGMA_RADIUS, gain.primary, gain.secondary * 100.0f);
+            break;
+        case ItemId::DawnPact:
+            description = std::format("【过关事件】每通过一关永久获得 +{:.0f}% 伤害、+{:.0f} 生命上限，并回复 {:.0f}% 生命。",
+                                      gain.primary * 100.0f, DAWN_PACT_MAXHP, gain.secondary * 100.0f);
             break;
         case ItemId::CharWatchman:
             description = std::format("生命上限 +{:.0f} · 防御 +{:.0f}。\n扛得住，适合正面硬顶。",
@@ -235,6 +279,31 @@ void SurvivorsLayer::ApplyItemEffect(ItemId id)
         case ItemId::MoonshotPupil:
             m_baseStats.critChance = std::min(CRIT_CHANCE_CAP, m_baseStats.critChance + gain.primary);
             m_baseStats.critDamageMul += gain.secondary;
+            break;
+        // 事件类：只把数值写进 BaseStats，真正的效果在 SurvivorsEvents.cpp 的 RaiseEvent 里读
+        case ItemId::SoulDagger:
+            m_baseStats.killHeal += gain.primary;
+            break;
+        case ItemId::WailingBell:
+            m_baseStats.killBurstDamage += gain.primary;
+            break;
+        case ItemId::CoinHammer:
+            m_baseStats.coinEventBonus += static_cast<int>(std::lround(gain.primary));
+            break;
+        case ItemId::ScavengerCharm:
+            m_baseStats.coinHeal += gain.primary;
+            break;
+        case ItemId::GreedChain:
+            m_baseStats.coinBurstRatio += gain.primary;
+            break;
+        case ItemId::MartyrStigma:
+            m_baseStats.hurtBurstDamage += gain.primary;
+            m_baseStats.hurtBurstHeal += gain.secondary;
+            break;
+        case ItemId::DawnPact:
+            m_baseStats.stageDamageGain += gain.primary;
+            m_baseStats.stageMaxHpGain += DAWN_PACT_MAXHP;
+            m_baseStats.stageHealRatio += gain.secondary;
             break;
         case ItemId::CharWatchman:
             m_baseStats.maxHp += gain.primary;
@@ -575,11 +644,12 @@ std::string SurvivorsLayer::DescribeWeapon(int weaponIndex, int currentLevel)
                                SCYTHE.count[level], SCYTHE.count[next]);
         case 3:
             if (level <= 0) {
-                return std::format("召唤落雷，随机劈击敌人\n伤害 {:.0f} · 落雷 {} 道",
-                                   STORM.damage[1], STORM.count[1]);
+                return std::format("召唤落雷劈击敌群（范围伤害）\n伤害 {:.0f} · 范围 {:.0f} · 落雷 {} 道",
+                                   STORM.damage[1], STORM.radius[1], STORM.count[1]);
             }
-            return std::format("伤害 {:.0f} → {:.0f}\n落雷 {} → {} 道",
+            return std::format("伤害 {:.0f} → {:.0f} · 范围 {:.0f} → {:.0f}\n落雷 {} → {} 道",
                                STORM.damage[level], STORM.damage[next],
+                               STORM.radius[level], STORM.radius[next],
                                STORM.count[level], STORM.count[next]);
         case 0:
         default:

@@ -71,6 +71,23 @@ namespace OiEngine::Survivors {
     constexpr float THORN_RADIUS = 240.0f;       // 荆棘之甲：反弹给这个半径内的敌人
     constexpr float REVIVE_HP_FRACTION = 0.60f;  // 不朽之心：复活时回多少血
 
+    // ---- 事件与事件道具（SurvivorsEvents.cpp）----
+    // 四类事件：击杀 / 拾取金币 / 受伤 / 过关。阈值类道具的触发间隔都在这里
+    constexpr int KILL_EVENT_STEP = 12;    // 哀嚎钟：每 12 次击杀响一次
+    constexpr int COIN_EVENT_STEP = 10;    // 铸币者之锤 / 拾荒护符：每累计 10 枚金币触发一次
+    constexpr int HURT_EVENT_STEP = 5;     // 受难者圣痕：每 5 次受伤触发一次
+    // 事件爆发的范围
+    constexpr float BELL_RADIUS = 260.0f;        // 哀嚎钟：音波半径
+    constexpr float STIGMA_RADIUS = 240.0f;      // 受难者圣痕：暗焰半径
+    constexpr float GREED_CHAIN_RADIUS = 180.0f; // 贪欲之链：拾币时金币碎片的半径
+    // 事件连锁上限：音波会再击杀敌人（又一次击杀事件），超过这个深度就只记账、
+    // 不再引爆新的范围伤害，避免一屏敌人被递归连锁清空
+    constexpr int MAX_EVENT_CHAIN = 3;
+    constexpr float DAWN_PACT_MAXHP = 2.0f;      // 黎明誓约：每次过关 +生命上限
+    // 事件道具的反馈色
+    inline const glm::vec4 C_BELL(0.74f, 0.64f, 1.00f, 1.0f);    // 哀嚎钟
+    inline const glm::vec4 C_STIGMA(0.72f, 0.24f, 0.34f, 1.0f);  // 受难者圣痕
+
     // ---- 武器 ----
     // 四把武器各最高 5 级；开局选一把，之后**每 5 级**可以从全部武器里选一次
     // （新武器 = 从 0 级解锁到 1 级，已有武器 = +1 级）。全部满级后这次机会折成金币
@@ -173,13 +190,13 @@ namespace OiEngine::Survivors {
         { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
     };
 
-    // 雷暴：瞬发落雷
+    // 雷暴：瞬发落雷，**落点是范围伤害**（半径随等级放大，见 STORM.radius）
     inline constexpr WeaponTuning STORM = {
-        { 0.0f, 34.0f, 46.0f, 56.0f, 74.0f, 96.0f },
+        { 0.0f, 24.0f, 32.0f, 40.0f, 52.0f, 68.0f },
         { 0.0f, 3.00f, 2.80f, 2.60f, 2.40f, 2.20f },
         { 0, 2, 2, 3, 3, 4 },
         { 0, 0, 0, 0, 0, 0 },
-        { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+        { 0.0f, 90.0f, 100.0f, 112.0f, 126.0f, 145.0f },
     };
 
     struct EnemyTuning {

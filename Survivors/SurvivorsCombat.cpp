@@ -56,6 +56,10 @@ void SurvivorsLayer::KillEnemy(Enemy& enemy)
     // 经验击杀当场结算（不再等拾取），金币作为掉落物撒在地上
     GainExp(enemy.xp);
 
+    // 事件：击杀（噬魂匕回血 / 哀嚎钟的「每 N 杀」音波）。放在经验之后：
+    // 事件里的范围伤害可能连锁击杀，经验照常逐只结算
+    RaiseEvent(EventId::Kill, enemy.position);
+
     if (isBoss) {
         m_shake = 26.0f;
         // 使徒的钱袋：拆成 12 枚散落，余数单独补一枚（总额不掉）
@@ -98,6 +102,10 @@ void SurvivorsLayer::DamagePlayer(float amount)
     m_shake = std::max(m_shake, 15.0f);
     PlaySfx(SfxId::Hurt);
     SpawnParticles(m_playerPosition, 14, C_BLOOD, 300.0f, 8.0f, 0.55f);
+
+    // 事件：受伤（受难者圣痕的「每 N 次受伤」暗焰反击）。
+    // 放在死亡判定之前：反击的回复可以救命，反击的伤害也照常结算
+    RaiseEvent(EventId::Hurt, m_playerPosition);
 
     // 荆棘之甲：把刚吃到的伤害按比例反弹给贴身的敌人（反弹的是结算后的伤害）
     if (m_baseStats.thornRatio > 0.0f && taken > 0.0f) {
@@ -249,6 +257,15 @@ void SurvivorsLayer::SpawnCoinNumber(const glm::vec2& position, int value)
 void SurvivorsLayer::UpdateCoins(float deltaTime)
 {
     const float pickupRadius = PickupRadius();
+    // 本轮拾到手的金币先记下来，事件放到遍历之后统一发：
+    // 拾币事件里的范围伤害会连锁击杀 → SpawnCoin 会 push / erase m_coinDrops，
+    // 在 range-for 里边遍历边改这个容器会失效（含 vector 扩容导致的引用悬空）
+    struct Pickup {
+        glm::vec2 position{ 0.0f, 0.0f };
+        int value = 1;
+    };
+    std::vector<Pickup> pickups;
+
     for (Coin& coin : m_coinDrops) {
         if (!coin.alive) {
             continue;
@@ -279,7 +296,14 @@ void SurvivorsLayer::UpdateCoins(float deltaTime)
             PlaySfx(SfxId::Pickup, 1.0f, Rand(0.94f, 1.10f));
             SpawnParticles(coin.position, 4, COIN_COLORS[coin.tier], 130.0f, 5.0f, 0.3f);
             SpawnCoinNumber(coin.position, value);
+            pickups.push_back({ coin.position, value });
         }
+    }
+
+    // 事件：拾取金币（铸币者之锤 / 拾荒护符 / 贪欲之链）。
+    // 金额用折算后的 value，和钱包里真正到手的数额一致
+    for (const Pickup& pickup : pickups) {
+        RaiseEvent(EventId::CoinPickup, pickup.position, pickup.value);
     }
 }
 

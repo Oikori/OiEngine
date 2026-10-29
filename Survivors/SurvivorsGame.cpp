@@ -232,6 +232,7 @@ void SurvivorsLayer::ResetRun()
     m_passive = {};
     m_character = CharacterItem(m_setupCharacter);
     ResetItems();
+    ResetEvents();              // 事件计数与触发进度也回到零
     m_playerHp = 0.0f;          // 避免 RecalculateStats 里的 clamp 读到上一局的血量
     RecalculateStats();
     m_playerHp = m_playerMaxHp;
@@ -354,9 +355,10 @@ void SurvivorsLayer::OnUpdate()
 
     const float deltaTime = std::min(Timer::GetDeltaTime(), 0.05f);
 
-    // ESC 先处理：走**物理轮询**（ImGui 抢焦点时事件收不到），带焦点判断，窗口失焦不响应。
-    // 事件通道（OnEvent）不再处理它，避免同一次按键被两条路径各处理一遍
+    // ESC / R 先处理：走**物理轮询**（ImGui 抢焦点时事件收不到），带焦点判断，窗口失焦不响应。
+    // 事件通道（OnEvent）不再处理这两个键，避免同一次按键被两条路径各处理一遍
     PollPauseKeys();
+    PollHotkeys();
 
     if (m_state == State::Playing) {
         UpdateGame(deltaTime);
@@ -436,6 +438,10 @@ void SurvivorsLayer::AdvanceStage()
     m_stageDuration = StageDuration(m_stage);
     m_stageBanner = 2.2f;
     m_stageBannerBoss = HasBossStage(m_stage);
+
+    // 事件：过关（黎明誓约：每过一关永久成长 + 回复一次）。
+    // 放在清场之前，让事件里的特效与结算都发生在「刚通过的那一关」的场上
+    RaiseEvent(EventId::StageClear, m_playerPosition, m_stage);
 
     // 过关清场：残留敌人与弹丸不带进下一关；地上的金币直接收进钱包（经验是击杀时已经给过的）
     for (const Coin& coin : m_coinDrops) {
@@ -579,6 +585,41 @@ void SurvivorsLayer::PollPauseKeys()
     }
 }
 
+// R 键：同一个键在不同界面是同一种「重抽」语义——
+//   升级面板 / 商店：整组刷新（和面板上的刷新按钮完全同一条路径，金币不足时按钮与按键都不生效）
+//   游戏内（Playing / Paused / GameOver / Victory）：重开一局
+// 同样用物理轮询 + 边沿检测：面板按钮被点过之后 ImGui 会吃掉键盘事件，R 只能从轮询进来
+void SurvivorsLayer::PollHotkeys()
+{
+    const bool restartDown = Input::IsKeyPressed(Key::R);
+    const bool restartPressed = restartDown && !m_restartDown;
+    m_restartDown = restartDown;
+    if (!restartPressed) {
+        return;
+    }
+
+    if (m_showHelp || m_showOptions) {
+        return;   // 帮助 / 设置打开时不吃 R（与 ESC 的分派一致：面板优先）
+    }
+
+    switch (m_state) {
+        case State::LevelUp:
+            RerollOptions();
+            break;
+        case State::Shop:
+            RerollShop();
+            break;
+        case State::Playing:
+        case State::Paused:
+        case State::GameOver:
+        case State::Victory:
+            ResetRun();   // 重开一局 = 回到开局选择（角色 / 武器可以换）
+            break;
+        default:
+            break;        // 标题 / 选角 / 每 5 级选武器：R 不做事
+    }
+}
+
 void SurvivorsLayer::OnEvent(Event& event)
 {
     if (event.GetEventType() != EventType::KeyPressed) {
@@ -590,7 +631,7 @@ void SurvivorsLayer::OnEvent(Event& event)
     }
 
     const int key = keyEvent.GetKeyCode();
-    // ESC 由 PollPauseKeys 统一处理（物理轮询），这里不再理会
+    // ESC / R 由 PollPauseKeys / PollHotkeys 统一处理（物理轮询），这里不再理会
     if (key == Key::F4) {
         m_showDebug = !m_showDebug;
         event.handled = true;
@@ -634,7 +675,7 @@ void SurvivorsLayer::OnEvent(Event& event)
         return;
     }
     if (m_state == State::Shop) {
-        // 商店里只认「离开」：Enter / 空格（ESC 在轮询里）
+        // 商店里只认「离开」：Enter / 空格（ESC / R 在轮询里）
         if (key == Key::Enter || key == Key::Space) {
             ContinueRun();
             event.handled = true;
@@ -642,11 +683,7 @@ void SurvivorsLayer::OnEvent(Event& event)
         return;
     }
 
-    // 游戏内（Playing / Paused / GameOver / Victory）
-    if (key == Key::R) {
-        ResetRun();   // 重开一局 = 回到开局选择（角色 / 武器可以换）
-        event.handled = true;
-        return;
-    }
+    // 游戏内的 R（重开一局）在 PollHotkeys 里处理：和面板里的「整组刷新」共用同一个键，
+    // 而且 ImGui 抢焦点时事件通道收不到，只能靠物理轮询
 }
 
