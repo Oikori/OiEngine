@@ -196,6 +196,25 @@ void SurvivorsLayer::DrawPlayer()
 {
     const float bob = std::sin(m_walkPhase * 2.1f) * 2.2f;
     const int auraLevel = m_weaponLevel[static_cast<int>(WeaponId::Aura)];
+    // 角色的配色（角色类道具的颜色）：法阵与身周微光跟着角色走，和各自的剪影一起读
+    const glm::vec4 characterColor = ItemColor(m_character);
+
+    // 形象：四个角色各一套网格（重甲 / 弓手 / 修女 / 术士），光源点对齐各自的盾心 / 弓 / 杖顶 / 法球
+    static const glm::vec2 CHARACTER_GLOW[4] = {
+        { -0.34f, -0.02f },   // 守夜人：盾心
+        { 0.30f, -0.04f },    // 猎手：弓心
+        { 0.34f, 0.30f },     // 修女：十字杖顶
+        { 0.34f, 0.22f },     // 术士：悬浮法球
+    };
+    const int characterIndex = CharacterIndexOf(m_character);
+    const glm::vec2 glowLocal = CHARACTER_GLOW[characterIndex];
+    const Ref<VertexArray>* body = &m_art.playerWatchman;
+    switch (characterIndex) {
+        case 1: body = &m_art.playerHunter; break;
+        case 2: body = &m_art.playerSister; break;
+        case 3: body = &m_art.playerWarlock; break;
+        default: break;
+    }
 
     if (!m_playerAlive) {
         DrawMesh(m_art.disc, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y - 4.0f, -1.0f)) *
@@ -222,24 +241,27 @@ void SurvivorsLayer::DrawPlayer()
     // 身周微光；没有圣光环时额外补一圈小型法阵，避免角色淹没在黑暗里
     DrawMesh(m_art.disc, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y, -1.3f)) *
                          Scale(glm::vec3(130.0f, 130.0f, 1.0f)),
-             glm::vec4(0.36f, 0.62f, 1.0f, 0.10f), 1.0f);
+             glm::vec4(characterColor.x * 0.55f + 0.18f, characterColor.y * 0.55f + 0.30f,
+                       characterColor.z * 0.55f + 0.45f, 0.12f), 1.0f);
     if (auraLevel == 0) {
         DrawMesh(m_art.sigil, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y, -1.15f)) *
                               RotateZ(-m_time * 0.22f) * Scale(glm::vec3(62.0f, 62.0f, 1.0f)),
-                 glm::vec4(0.55f, 0.85f, 1.0f, 0.18f));
+                 glm::vec4(characterColor.x, characterColor.y, characterColor.z, 0.24f));
     }
 
-    // 法杖宝石的光
-    DrawMesh(m_art.disc, Translate(glm::vec3(m_playerPosition.x + 16.0f, m_playerPosition.y + 22.0f + bob, 0.5f)) *
+    // 角色自带的光源（盾心的宝石 / 弓 / 十字杖顶 / 法球）：跟着角色色走
+    DrawMesh(m_art.disc, Translate(glm::vec3(m_playerPosition.x + glowLocal.x * 64.0f,
+                                             m_playerPosition.y + glowLocal.y * 64.0f + bob, 0.5f)) *
                          Scale(glm::vec3(30.0f, 30.0f, 1.0f)),
-             glm::vec4(0.55f, 0.95f, 1.0f, 0.22f), 1.0f);
+             glm::vec4(characterColor.x * 0.7f + 0.3f, characterColor.y * 0.7f + 0.3f,
+                       characterColor.z * 0.7f + 0.3f, 0.26f), 1.0f);
 
     glm::vec4 tint = WHITE;
     if (m_hurtCooldown > 0.0f && std::fmod(m_hurtCooldown, 0.22f) < 0.12f) {
         tint = glm::vec4(1.6f, 0.7f, 0.7f, 1.0f);
     }
-    DrawMesh(m_art.player, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y + bob, 0.6f)) *
-                           Scale(glm::vec3(64.0f, 64.0f, 1.0f)), tint);
+    DrawMesh(*body, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y + bob, 0.6f)) *
+                    Scale(glm::vec3(64.0f, 64.0f, 1.0f)), tint);
 }
 
 void SurvivorsLayer::DrawProjectiles()

@@ -1,5 +1,7 @@
 #include "WindowsWindow.h"
 
+#include <algorithm>
+
 #include <GLFW/glfw3.h>
 
 // 取 HWND 需要 GLFW 的平台扩展（必须在包含前定义），IME 相关 API 在 imm.h
@@ -48,9 +50,44 @@ namespace OiEngine {
 	        glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 	    }
 #endif
-		GLFWwindow* win = glfwCreateWindow((int)props.width, (int)props.height, m_title.c_str(), nullptr, nullptr);
+		// 窗口不能比工作区还大：否则在 1366×768 / 带任务栏的小屏上，窗口底部会跑到屏幕外，
+		// 画在底部的按钮（例：Survivors 开局页的「开始战斗」）就点不到了。
+		// 按工作区的 94% 封顶，并把窗口摆到工作区正中
+		int workX = 0, workY = 0, workW = 0, workH = 0;
+		GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+		if (monitor != nullptr) {
+			glfwGetMonitorWorkarea(monitor, &workX, &workY, &workW, &workH);
+		}
+		int windowWidth = static_cast<int>(props.width);
+		int windowHeight = static_cast<int>(props.height);
+		if (workW > 0 && workH > 0) {
+			const int maxWidth = static_cast<int>(static_cast<float>(workW) * 0.94f);
+			const int maxHeight = static_cast<int>(static_cast<float>(workH) * 0.94f);
+			if (windowWidth > maxWidth || windowHeight > maxHeight) {
+				OI_INFO("窗口 {0}×{1} 超出工作区 {2}×{3}，按可用空间缩小",
+					static_cast<int>(props.width), static_cast<int>(props.height), workW, workH);
+				windowWidth = std::min(windowWidth, maxWidth);
+				windowHeight = std::min(windowHeight, maxHeight);
+			}
+		}
+
+		GLFWwindow* win = glfwCreateWindow(windowWidth, windowHeight, m_title.c_str(), nullptr, nullptr);
 	    m_window = win;
 		++s_GLFWWindowCount;
+
+		if (win != nullptr) {
+			if (workW > 0 && workH > 0) {
+				glfwSetWindowPos(win, workX + (workW - windowWidth) / 2, workY + (workH - windowHeight) / 2);
+			}
+			// 用**实际创建出来的**尺寸做初值：上面可能缩小过，别让 m_width / m_height 停留在请求值上
+			int actualWidth = 0;
+			int actualHeight = 0;
+			glfwGetWindowSize(win, &actualWidth, &actualHeight);
+			if (actualWidth > 0 && actualHeight > 0) {
+				m_width = static_cast<uint32_t>(actualWidth);
+				m_height = static_cast<uint32_t>(actualHeight);
+			}
+		}
 
 		// 游戏窗口默认不挂输入法：中文输入法激活时，WASD / 数字键会先被组词流程吃掉，
 		// GLFW 收不到 WM_KEYDOWN，游戏里就表现为「按键没反应」。

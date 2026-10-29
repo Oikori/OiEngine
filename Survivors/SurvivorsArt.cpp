@@ -19,6 +19,24 @@ namespace {
     const glm::vec4 PLAYER_VOID(0.05f, 0.04f, 0.09f, 1.0f);
     const glm::vec4 CRYSTAL(0.58f, 0.95f, 1.00f, 1.0f);
 
+    // ---------------- 四个角色各自的配色（和 ItemColor 里的角色色大致对应） ----------------
+    const glm::vec4 WATCH_STEEL(0.42f, 0.50f, 0.66f, 1.0f);   // 守夜人：钢蓝重甲 + 金边
+    const glm::vec4 WATCH_DARK(0.22f, 0.26f, 0.38f, 1.0f);
+    const glm::vec4 WATCH_GOLD(0.94f, 0.80f, 0.44f, 1.0f);
+
+    const glm::vec4 HUNTER_CLOAK(0.26f, 0.44f, 0.34f, 1.0f);  // 猎手：墨绿斗篷 + 皮革
+    const glm::vec4 HUNTER_DARK(0.14f, 0.24f, 0.20f, 1.0f);
+    const glm::vec4 HUNTER_LEATHER(0.54f, 0.40f, 0.26f, 1.0f);
+    const glm::vec4 HUNTER_GLOW(0.70f, 1.00f, 0.72f, 1.0f);
+
+    const glm::vec4 SISTER_ROBE(0.88f, 0.88f, 0.94f, 1.0f);   // 修女：米白长袍 + 金十字
+    const glm::vec4 SISTER_SHADE(0.62f, 0.64f, 0.76f, 1.0f);
+    const glm::vec4 SISTER_GOLD(0.96f, 0.84f, 0.54f, 1.0f);
+
+    const glm::vec4 WARLOCK_ROBE(0.32f, 0.20f, 0.48f, 1.0f);  // 术士：紫黑长袍 + 紫色法球
+    const glm::vec4 WARLOCK_DARK(0.16f, 0.10f, 0.26f, 1.0f);
+    const glm::vec4 WARLOCK_GLOW(0.74f, 0.54f, 1.00f, 1.0f);
+
     const glm::vec4 BAT_WING(0.42f, 0.22f, 0.52f, 1.0f);
     const glm::vec4 BAT_BODY(0.60f, 0.34f, 0.72f, 1.0f);
     const glm::vec4 BAT_EYE(1.00f, 0.72f, 0.35f, 1.0f);
@@ -274,35 +292,157 @@ namespace {
     }
 
     // ---------------- 角色 ----------------
-    Ref<VertexArray> CreatePlayer()
+    // ---------------- 角色：四个角色各一套轮廓，靠剪影就能分辨 ----------------
+    // 约定：局部坐标约 ±0.6，绘制时统一 Scale(64)；原点在躯干中心。
+
+    // 守夜人：重甲 + 圆盾 + 短锤（最宽最厚重）
+    Ref<VertexArray> CreatePlayerWatchman()
     {
         MeshBuilder builder;
-        // 披风（钟形轮廓）
+        // 长袍下摆（宽）
         builder.AddPolygon({
-            { 0.00f, 0.20f }, { 0.20f, 0.10f }, { 0.34f, -0.30f }, { 0.26f, -0.50f },
-            { 0.00f, -0.56f }, { -0.26f, -0.50f }, { -0.34f, -0.30f }, { -0.20f, 0.10f },
-        }, PLAYER_CLOAK);
-        // 内层暗面
+            { 0.00f, 0.12f }, { 0.30f, 0.00f }, { 0.36f, -0.46f }, { 0.18f, -0.60f },
+            { -0.18f, -0.60f }, { -0.36f, -0.46f }, { -0.30f, 0.00f },
+        }, WATCH_DARK);
+        // 胸甲
         builder.AddPolygon({
-            { 0.00f, 0.10f }, { 0.14f, 0.04f }, { 0.20f, -0.38f }, { 0.00f, -0.46f },
-            { -0.20f, -0.38f }, { -0.14f, 0.04f },
-        }, PLAYER_INNER, 0.01f);
-        // 下摆金边
+            { 0.00f, 0.22f }, { 0.26f, 0.08f }, { 0.22f, -0.32f }, { 0.00f, -0.42f },
+            { -0.22f, -0.32f }, { -0.26f, 0.08f },
+        }, WATCH_STEEL, 0.02f);
+        // 腰带
+        builder.AddRect({ 0.00f, -0.20f }, { 0.24f, 0.035f }, WATCH_GOLD, 0.03f);
+        // 肩甲（左右：金边 + 钢面）
+        for (int side = -1; side <= 1; side += 2) {
+            const float x = 0.265f * static_cast<float>(side);
+            builder.AddCircle({ x, 0.10f }, 0.115f, 14, WATCH_GOLD, 0.03f);
+            builder.AddCircle({ x, 0.10f }, 0.088f, 12, WATCH_STEEL, 0.04f);
+        }
+        // 头盔 + 面甲缝 + 盔顶羽饰
+        builder.AddCircle({ 0.00f, 0.34f }, 0.185f, 20, WATCH_STEEL, 0.05f);
+        builder.AddRect({ 0.00f, 0.30f }, { 0.125f, 0.052f }, PLAYER_VOID, 0.06f);
+        builder.AddRect({ 0.00f, 0.315f }, { 0.100f, 0.014f }, WATCH_GOLD, 0.07f);
+        builder.AddTriangle({ 0.00f, 0.52f }, { 0.055f, 0.62f }, { -0.055f, 0.62f }, WATCH_GOLD, 0.05f);
+        // 圆盾（左手）：钢面 + 金环 + 中心宝石
+        builder.AddCircle({ -0.34f, -0.02f }, 0.205f, 22, WATCH_STEEL, 0.08f);
+        builder.AddRing({ -0.34f, -0.02f }, 0.150f, 0.190f, 22, WATCH_GOLD, 0.09f);
+        builder.AddCircle({ -0.34f, -0.02f }, 0.055f, 12, CRYSTAL, 0.10f);
+        // 短锤（右手）
         builder.AddPolygon({
-            { -0.26f, -0.50f }, { 0.00f, -0.56f }, { 0.26f, -0.50f },
-            { 0.21f, -0.44f }, { 0.00f, -0.49f }, { -0.21f, -0.44f },
-        }, PLAYER_TRIM, 0.02f);
-        // 兜帽 + 阴影里的脸
-        builder.AddCircle({ 0.00f, 0.30f }, 0.215f, 22, PLAYER_INNER, 0.03f);
-        builder.AddCircle({ 0.00f, 0.28f }, 0.140f, 18, PLAYER_VOID, 0.04f);
-        builder.AddCircle({ -0.055f, 0.28f }, 0.024f, 8, CRYSTAL, 0.05f);
-        builder.AddCircle({ 0.055f, 0.28f }, 0.024f, 8, CRYSTAL, 0.05f);
-        // 法杖（斜持）
+            { 0.30f, -0.30f }, { 0.345f, -0.28f }, { 0.400f, 0.10f }, { 0.355f, 0.12f },
+        }, HUNTER_LEATHER, 0.04f);
+        builder.AddRect({ 0.400f, 0.16f }, { 0.085f, 0.065f }, WATCH_STEEL, 0.05f);
+        return BuildMesh(builder);
+    }
+
+    // 猎手：尖兜帽 + 短斗篷 + 长弓（细长、墨绿）
+    Ref<VertexArray> CreatePlayerHunter()
+    {
+        MeshBuilder builder;
+        // 斗篷（下摆略外扩，别收成尖）
         builder.AddPolygon({
-            { 0.255f, -0.36f }, { 0.305f, -0.34f }, { 0.395f, 0.34f }, { 0.355f, 0.37f },
-        }, PLAYER_TRIM, 0.04f);
-        // 杖顶宝石
-        builder.AddDiamond({ 0.395f, 0.49f }, 0.095f, 0.17f, CRYSTAL, 0.05f);
+            { 0.00f, 0.16f }, { 0.22f, 0.04f }, { 0.20f, -0.32f }, { 0.13f, -0.60f },
+            { -0.13f, -0.60f }, { -0.20f, -0.32f }, { -0.22f, 0.04f },
+        }, HUNTER_CLOAK);
+        // 内衬
+        builder.AddPolygon({
+            { 0.00f, 0.04f }, { 0.11f, -0.02f }, { 0.09f, -0.46f },
+            { -0.09f, -0.46f }, { -0.11f, -0.02f },
+        }, HUNTER_DARK, 0.01f);
+        // 斜挎皮带
+        builder.AddPolygon({
+            { -0.15f, 0.10f }, { 0.15f, -0.14f }, { 0.15f, -0.22f }, { -0.15f, 0.02f },
+        }, HUNTER_LEATHER, 0.02f);
+        // 箭袋放在**左侧背后**，给右边的弓让位
+        builder.AddRect({ -0.22f, -0.02f }, { 0.050f, 0.170f }, HUNTER_LEATHER, 0.02f);
+        builder.AddTriangle({ -0.22f, 0.19f }, { -0.18f, 0.30f }, { -0.26f, 0.30f }, HUNTER_GLOW, 0.02f);
+        // 尖兜帽 + 脸影 + 两点眼光
+        builder.AddPolygon({
+            { 0.00f, 0.58f }, { 0.17f, 0.30f }, { 0.13f, 0.10f }, { -0.13f, 0.10f }, { -0.17f, 0.30f },
+        }, HUNTER_DARK, 0.04f);
+        builder.AddCircle({ 0.00f, 0.27f }, 0.125f, 16, PLAYER_VOID, 0.05f);
+        builder.AddCircle({ -0.050f, 0.27f }, 0.022f, 8, HUNTER_GLOW, 0.06f);
+        builder.AddCircle({ 0.050f, 0.27f }, 0.022f, 8, HUNTER_GLOW, 0.06f);
+        // 长弓（右手侧）：向右弓起的弧形弓臂 + 弦
+        const glm::vec2 bowHand(0.30f, -0.04f);
+        constexpr int BOW_SEGMENTS = 8;
+        glm::vec2 outer[BOW_SEGMENTS + 1];
+        glm::vec2 inner[BOW_SEGMENTS + 1];
+        for (int i = 0; i <= BOW_SEGMENTS; ++i) {
+            const float angle = -1.15f + 2.30f * static_cast<float>(i) / static_cast<float>(BOW_SEGMENTS);
+            const glm::vec2 dir(std::cos(angle), std::sin(angle));
+            outer[i] = bowHand + glm::vec2(0.100f * dir.x, 0.350f * dir.y);
+            inner[i] = bowHand + glm::vec2(0.042f * dir.x, 0.330f * dir.y);
+        }
+        for (int i = 0; i < BOW_SEGMENTS; ++i) {
+            builder.AddQuad(outer[i], outer[i + 1], inner[i + 1], inner[i], HUNTER_LEATHER, 0.03f);
+        }
+        // 弓弦：两端尖之间的弦线（细、暗）
+        builder.AddRect(bowHand + glm::vec2(0.040f, 0.0f), { 0.007f, 0.315f }, HUNTER_DARK, 0.03f);
+        return BuildMesh(builder);
+    }
+
+    // 修女：头巾 + 米白长袍 + 十字杖（圆润、亮）
+    Ref<VertexArray> CreatePlayerSister()
+    {
+        MeshBuilder builder;
+        // 长袍
+        builder.AddPolygon({
+            { 0.00f, 0.16f }, { 0.26f, 0.02f }, { 0.34f, -0.50f }, { 0.16f, -0.60f },
+            { -0.16f, -0.60f }, { -0.34f, -0.50f }, { -0.26f, 0.02f },
+        }, SISTER_ROBE);
+        // 披肩（暗一档）+ 腰带
+        builder.AddPolygon({
+            { 0.00f, 0.14f }, { 0.20f, 0.06f }, { 0.16f, -0.22f }, { -0.16f, -0.22f }, { -0.20f, 0.06f },
+        }, SISTER_SHADE, 0.02f);
+        builder.AddRect({ 0.00f, -0.26f }, { 0.22f, 0.030f }, SISTER_GOLD, 0.03f);
+        // 胸前十字
+        builder.AddRect({ 0.00f, 0.02f }, { 0.020f, 0.075f }, SISTER_GOLD, 0.05f);
+        builder.AddRect({ 0.00f, 0.06f }, { 0.060f, 0.020f }, SISTER_GOLD, 0.05f);
+        // 头巾：外圈 + 两侧垂布 + 脸影 + 眼睛
+        builder.AddCircle({ 0.00f, 0.30f }, 0.205f, 20, SISTER_ROBE, 0.04f);
+        builder.AddPolygon({
+            { -0.20f, 0.32f }, { -0.14f, 0.00f }, { -0.03f, -0.03f }, { -0.09f, 0.32f },
+        }, SISTER_ROBE, 0.03f);
+        builder.AddPolygon({
+            { 0.20f, 0.32f }, { 0.14f, 0.00f }, { 0.03f, -0.03f }, { 0.09f, 0.32f },
+        }, SISTER_ROBE, 0.03f);
+        builder.AddCircle({ 0.00f, 0.28f }, 0.120f, 16, PLAYER_VOID, 0.05f);
+        builder.AddCircle({ -0.045f, 0.29f }, 0.020f, 8, SISTER_GOLD, 0.06f);
+        builder.AddCircle({ 0.045f, 0.29f }, 0.020f, 8, SISTER_GOLD, 0.06f);
+        // 十字杖（右手）
+        builder.AddRect({ 0.34f, -0.08f }, { 0.022f, 0.420f }, SISTER_GOLD, 0.03f);
+        builder.AddRect({ 0.34f, 0.30f }, { 0.090f, 0.022f }, SISTER_GOLD, 0.04f);
+        builder.AddCircle({ 0.34f, 0.30f }, 0.050f, 12, CRYSTAL, 0.05f);
+        return BuildMesh(builder);
+    }
+
+    // 术士：尖帽 + 紫黑长袍 + 悬浮法球（最瘦、下摆收尖）
+    Ref<VertexArray> CreatePlayerWarlock()
+    {
+        MeshBuilder builder;
+        // 长袍（下摆尖角）
+        builder.AddPolygon({
+            { 0.00f, 0.18f }, { 0.27f, 0.02f }, { 0.30f, -0.44f }, { 0.00f, -0.64f },
+            { -0.30f, -0.44f }, { -0.27f, 0.02f },
+        }, WARLOCK_ROBE);
+        // 前襟暗缝（细长一条，别做成整块菱形，否则下摆看着像个洞）
+        builder.AddPolygon({
+            { 0.00f, -0.14f }, { 0.075f, -0.30f }, { 0.00f, -0.58f }, { -0.075f, -0.30f },
+        }, WARLOCK_DARK, 0.01f);
+        builder.AddRect({ 0.00f, -0.16f }, { 0.22f, 0.028f }, WARLOCK_GLOW, 0.02f);
+        // 帽檐（扁菱形，亮一档）+ 帽尖 + 帽带
+        builder.AddDiamond({ 0.00f, 0.36f }, 0.340f, 0.085f, WARLOCK_ROBE, 0.04f);
+        builder.AddTriangle({ 0.00f, 0.68f }, { 0.150f, 0.34f }, { -0.150f, 0.34f }, WARLOCK_DARK, 0.05f);
+        builder.AddRect({ 0.00f, 0.38f }, { 0.130f, 0.018f }, WARLOCK_GLOW, 0.06f);
+        // 脸影 + 紫光眼
+        builder.AddCircle({ 0.00f, 0.25f }, 0.125f, 16, PLAYER_VOID, 0.06f);
+        builder.AddCircle({ -0.048f, 0.25f }, 0.024f, 8, WARLOCK_GLOW, 0.07f);
+        builder.AddCircle({ 0.048f, 0.25f }, 0.024f, 8, WARLOCK_GLOW, 0.07f);
+        // 悬浮法球（右手侧）+ 短杖
+        builder.AddRect({ 0.30f, -0.06f }, { 0.020f, 0.240f }, WARLOCK_DARK, 0.03f);
+        builder.AddRing({ 0.34f, 0.22f }, 0.135f, 0.170f, 22, WARLOCK_GLOW, 0.08f);
+        builder.AddCircle({ 0.34f, 0.22f }, 0.110f, 18, WARLOCK_DARK, 0.08f);
+        builder.AddCircle({ 0.34f, 0.22f }, 0.070f, 16, CRYSTAL, 0.09f);
         return BuildMesh(builder);
     }
 
@@ -630,7 +770,10 @@ namespace OiEngine::Survivors {
 
     void SurvivorsArt::Load()
     {
-        player = CreatePlayer();
+        playerWatchman = CreatePlayerWatchman();
+        playerHunter = CreatePlayerHunter();
+        playerSister = CreatePlayerSister();
+        playerWarlock = CreatePlayerWarlock();
         bat = CreateBat();
         ghoul = CreateGhoul();
         wraith = CreateWraith();
@@ -657,7 +800,10 @@ namespace OiEngine::Survivors {
 
     void SurvivorsArt::Unload()
     {
-        player.reset();
+        playerWatchman.reset();
+        playerHunter.reset();
+        playerSister.reset();
+        playerWarlock.reset();
         bat.reset();
         ghoul.reset();
         wraith.reset();

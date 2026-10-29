@@ -15,8 +15,10 @@
 
 // 《永夜幸存者》——类《吸血鬼幸存者》的俯视角自动战斗生存游戏。
 //
-// 玩法：WASD 移动，武器自动索敌开火；击杀敌人**直接获得经验**，掉落物是金币（刷新升级卡用）。
-// 升级时从三张卡里选一项强化；属性卡没有层数上限，但有品质（普通 / 高级 / 稀有 / 史诗）。
+// 玩法：WASD 移动，武器自动索敌开火；击杀敌人**直接获得经验**，掉落物是金币（商店与刷新升级卡用）。
+// **开局先选一个角色和一把武器**；之后每次升级从三张**属性卡**里选一项（武器卡与立即回复已移出卡池），
+// **每 5 级**从四把武器里选一把（新武器或已有武器 +1 级）；**每关通关后开商店**买道具（可整组刷新）。
+// 道具有种类（普通 / 限制类 / 独特 / 角色）与稀有度（普通 / 高级 / 稀有 / 史诗）。
 // 撑到黎明（第 10 关结束）即胜利。所有美术资源都是程序化几何，无图片依赖。
 //
 // 代码分工（所有 .cpp 都只定义 SurvivorsLayer 的成员函数，共享本头文件）：
@@ -25,8 +27,9 @@
 //   SurvivorsWeapons.cpp  武器：索敌、四把武器的开火与冷却、弹丸推进
 //   SurvivorsCombat.cpp   伤害与击杀、金币掉落与拾取、粒子 / 光环 / 伤害数字
 //   SurvivorsUpgrade.cpp  经验与升级卡（卡池、品质、整组刷新、属性结算）
+//   SurvivorsItems.cpp    道具目录 / 持有上限 / 效果结算 / 商店 / 开局选角与每 5 级选武器
 //   SurvivorsRender.cpp   世界渲染（程序化网格的绘制顺序与变换）
-//   SurvivorsUi.cpp       全部 ImGui 面板（标题 / HUD / 升级 / 暂停 / 结算 / 帮助 / 设置）
+//   SurvivorsUi.cpp       全部 ImGui 面板（标题 / 选角 / HUD / 升级 / 选武器 / 商店 / 暂停 / 结算 / 帮助 / 设置）
 //   SurvivorsArt.*        程序化几何库
 //   SurvivorsInternal.h   内部共享的调参表 / 调色板 / 小工具（不要 include 到工程外）
 namespace OiEngine::Survivors {
@@ -57,16 +60,35 @@ namespace OiEngine::Survivors {
 
     private:
         // ---- 类型 ----
-        enum class State { Title, Playing, LevelUp, Paused, GameOver, Victory };
+        // Setup = 开局选角色 + 武器；WeaponPick = 每 5 级从全部武器里选一把；Shop = 每关通关后的商店
+        enum class State { Title, Setup, Playing, LevelUp, WeaponPick, Shop, Paused, GameOver, Victory };
         enum class EnemyType { Bat = 0, Ghoul, Wraith, Brute, Boss, Count };
         enum class WeaponId { MoonBlade = 0, Aura, Scythe, Storm, Count };
         enum class PassiveId { Might = 0, Haste, Swift, Vitality, Magnet, Luck, Regen, Bulwark, Sunder, Count };
         enum class ShotKind { Blade, Scythe };
         enum class FxKind { Ring, Flash, Bolt };
-        enum class UpgradeKind { Weapon, Passive, Heal };
-        // 卡片品质：作用于**属性卡（被动）与补给卡**，决定加成幅度与出现概率。
-        // 武器卡是固定的等级进阶，不带品质（tag 显示 Lv.N，颜色用武器色）。
+        // 品质 / 稀有度：同一套四档（普通 / 高级 / 稀有 / 史诗），但用法不同——
+        //   升级卡（属性卡）每次抽卡**掷**品质，倍率放大加成；
+        //   道具的稀有度是**目录里写死的固定属性**（见 ItemDef::rarity），只决定展示色、价格与出货权重。
         enum class Rarity { Common = 0, Advanced, Rare, Epic, Count };
+        // 道具种类：
+        //   普通   —— 无持有上限，可以一直叠
+        //   限制类 —— 每件有持有上限（ItemCap 给 2~3）
+        //   独特   —— 全局只能持有一件（手上已有任意独特道具就不再出），每件也只能拿一次
+        //   角色   —— 开局选择的角色，固定史诗，不进商店
+        enum class ItemCategory { Normal = 0, Limited, Unique, Character, Count };
+        // 道具目录：顺序与 SurvivorsItems.cpp 里的 ITEM_DEFS 一一对应（读目录请走 ItemName / ItemColor）
+        enum class ItemId {
+            // 普通类：无持有上限
+            BloodBag = 0, Whetstone, IronPlate, HunterMark, StarBoots, SoulLamp,
+            // 限制类：有持有上限
+            BloodSigil, GaleFeather, Grail, DragonScale,
+            // 独特类：全局一件
+            UndyingHeart, ThornMail, GreedCoffin, MoonshotPupil,
+            // 角色类：史诗，开局选择
+            CharWatchman, CharHunter, CharSister, CharWarlock,
+            Count
+        };
         // 音效槽：顺序与 cpp 里的 SFX_FILES / SFX_VOLUME / SFX_THROTTLE 一致
         enum class SfxId {
             Blade = 0, Storm, Hit, Kill, Pickup, LevelUp, Hurt,
@@ -151,15 +173,41 @@ namespace OiEngine::Survivors {
             bool gold = false;   // 金币拾取提示（金色 +N，不参与暴击判定）
         };
 
+        // 升级卡：现在只有属性卡（武器与立即回复已移出卡池），所以只需要被动下标 + 掷出的品质
         struct UpgradeOption {
-            UpgradeKind kind = UpgradeKind::Passive;
-            int index = 0;
+            int index = 0;                       // PassiveId
             Rarity rarity = Rarity::Common;
             std::string tag;
             std::string title;
             std::string description;
             glm::vec4 color{ 0.5f, 0.5f, 0.5f, 1.0f };
         };
+
+        // 商店货位：一件道具 + 价格（售出后留空位展示，不再刷新）。
+        // 稀有度是**道具本身的固定属性**（见 ItemDef::rarity），不随货位重掷
+        struct ShopOffer {
+            ItemId id = ItemId::BloodBag;
+            int price = 0;
+            bool sold = false;
+        };
+
+        // 道具目录条目（数据在 SurvivorsItems.cpp）：名字 / 种类 / 固定稀有度 / 持有上限（0 = 无上限）/ 配色
+        struct ItemDef {
+            const char* name = "";
+            ItemCategory category = ItemCategory::Normal;
+            Rarity rarity = Rarity::Common;
+            int cap = 0;
+            glm::vec4 color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        };
+
+        // 道具的单次加成（primary / secondary 的含义随道具不同，见 ItemGainFor）
+        struct ItemGain {
+            float primary = 0.0f;
+            float secondary = 0.0f;
+        };
+
+        // 道具目录本体：唯一一份定义在 SurvivorsItems.cpp（数组下标 = ItemId）
+        static const ItemDef ITEM_DEFS[static_cast<int>(ItemId::Count)];
 
         // 属性卡的单张加成（primary / secondary 的含义随被动不同，见 PassiveGainFor）
         struct PassiveGain {
@@ -204,7 +252,8 @@ namespace OiEngine::Survivors {
 
         // ---- 初始化 ----
         void CreateShaders();
-        void ResetRun();
+        void ResetRun();        // 清一局的状态，然后进入 State::Setup（选角色 + 武器）
+        void BeginRun();        // 应用开局选择（角色 / 武器）并开打
         void ReturnToTitle();   // 清局并切回标题界面（结算窗口的「回到标题」也用它）
         void InitWisps();
 
@@ -228,6 +277,9 @@ namespace OiEngine::Survivors {
         void UpdateEffects(float deltaTime);
         void UpdateContactDamage(float deltaTime);
         void UpdateCamera(float deltaTime);
+
+        // ---- 输入（ESC：每帧物理轮询，ImGui 抢焦点时也能用；窗口失焦不响应）----
+        void PollPauseKeys();
 
         // ---- 武器 ----
         bool FireMoonBlade();
@@ -254,19 +306,58 @@ namespace OiEngine::Survivors {
         void SpawnCoinNumber(const glm::vec2& position, int value);
         void GainExp(int amount);
 
-        // ---- 升级 ----
+        // ---- 升级：卡池只剩属性卡（武器在每 5 级单独选，立即回复改由商店的道具提供）----
         void StartLevelUp();
         void BuildUpgradeOptions(const std::vector<UpgradeOption>& avoid = {});
-        std::vector<UpgradeOption> BuildUpgradePool() const;   // 当前可选的全部卡（未定品质、未洗牌）
+        std::vector<UpgradeOption> BuildUpgradePool() const;   // 当前可选的全部属性卡（未定品质、未洗牌）
         UpgradeOption RollOption(const UpgradeOption& base);   // 给一张基础卡掷品质并生成文案
-        Rarity RollRarity();
+        Rarity RollRarity(int depth);                          // 给升级卡掷品质：depth = 当前等级，越大越好
         int RerollCost() const;                                // 本次选取下一次刷新要花的金币
         void RerollOptions();                                  // 花金币整组重抽三张
         static bool SameCard(const UpgradeOption& a, const UpgradeOption& b);
         static PassiveGain PassiveGainFor(int passive, float multiplier);
-        static float HealFraction(Rarity rarity);              // 血之祭按品质回复多少比例
         void ApplyUpgrade(int optionIndex);
         void DescribePassive(int passive, float multiplier, std::string& title, std::string& desc) const;
+
+        // ---- 每 5 级的武器选择（从全部武器里选：新武器 or 已有武器 +1 级）----
+        void StartWeaponPick();
+        void ChooseWeapon(int weaponIndex);
+        static std::string DescribeWeapon(int weaponIndex, int currentLevel);   // 卡片正文（含下一级数值）
+
+        // ---- 开局选择（角色类道具按目录顺序编号）----
+        static ItemId CharacterItem(int index);
+        static int CharacterCount();
+        static int CharacterIndexOf(ItemId id);   // 反向：角色类道具 → 0..3（非角色返回 0）
+        void ApplyCharacter(ItemId character);
+
+        // ---- 道具 ----
+        // 道具的稀有度是**目录里写死的固定属性**（同一件道具永远是同一个稀有度），
+        // 稀有度只决定档位：展示色、商店价格、出货权重；效果就是 ItemGainFor 里的那组数
+        static const char* ItemName(ItemId id);
+        static glm::vec4 ItemColor(ItemId id);
+        static ItemCategory ItemCategoryOf(ItemId id);
+        static Rarity ItemRarity(ItemId id);
+        static int ItemCap(ItemId id);            // 0 = 无持有上限（普通类）
+        static ItemGain ItemGainFor(ItemId id);
+        static void DescribeItem(ItemId id, std::string& title, std::string& description);
+        void ResetItems();
+        int ItemCount(ItemId id) const;
+        int UniqueHeld() const;                   // 手上的独特道具件数（>0 就不能再买独特）
+        bool CanAcquireItem(ItemId id) const;     // 种类上限 + 独特全局一件都在这里判
+        void AcquireItem(ItemId id);              // 结算效果并记入背包（重复购买就是叠加）
+        void ApplyItemEffect(ItemId id);
+        int CoinGain(int base) const;             // 金币收益倍率（贪婪之匣）
+
+        // ---- 商店（每关通关后开）----
+        void OpenShop();
+        void RollShopOffers(const std::vector<ShopOffer>& avoid = {});
+        int ShopPrice(Rarity rarity) const;
+        int ShopRerollCost() const;
+        void RerollShop();
+        bool BuyShopOffer(int slot);
+
+        // ---- 面板排队：升级 → 选武器 → 商店，全部处理完才回到 Playing ----
+        void ContinueRun();
 
         // ---- 渲染 ----
         void DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& transform,
@@ -283,10 +374,13 @@ namespace OiEngine::Survivors {
         void DrawEffectsOver();
         void DrawScreenOverlay();
         void RenderTitle();
+        void RenderSetup();       // 开局：选角色 + 武器
         void RenderHud();
         void RenderHelp();
         void RenderOptions();
         void RenderLevelUp();
+        void RenderWeaponPick();  // 每 5 级：从全部武器里选
+        void RenderShop();        // 每关通关后：买道具 / 整组刷新
         void RenderPause();
         void RenderGameOver();
         void RenderVictory();
@@ -310,10 +404,15 @@ namespace OiEngine::Survivors {
             float regenPerSecond = 0.0f;
 
             // 防御只有固定值：减伤率 = 防御 / (防御 + 100)（100 点 = 50% 减伤，趋近但永不到 100%）。
-            // 穿甲分两档，都作用在对方的防御值上：百分比穿甲先按比例削，固定穿甲再扣点（不穿成负数）。
+            // 穿甲也只有固定值：先扣对方这么多点防御（不穿成负数），剩下的防御再换减伤率
             float defense = 0.0f;           // 防御（点）
             float penFlat = 0.0f;           // 固定穿甲（点）
-            float penPercent = 0.0f;        // 百分比穿甲（0~1）
+
+            // 道具带来的额外维度（属性卡不给这些）
+            float critDamageMul = 2.0f;     // 暴击伤害倍率（猎月瞳提升）
+            float coinGainMul = 1.0f;       // 金币收益倍率（贪婪之匣）
+            float thornRatio = 0.0f;        // 荆棘之甲：受击时按比例反弹给贴身的敌人
+            int reviveCharges = 0;          // 不朽之心：阵亡时的复活次数
         };
 
         // 开局裸值：ResetRun 重置成它；百分比型成长（移速 / 拾取半径）的每张卡步长也按它的比例给，
@@ -328,6 +427,7 @@ namespace OiEngine::Survivors {
         float DamageMul() const;
         float AttackSpeedMul() const;
         float CritChance() const;
+        float CritMultiplier() const;
         float MoveSpeed() const;
         float PickupRadius() const;
         float MaxHp() const;
@@ -336,7 +436,8 @@ namespace OiEngine::Survivors {
         // ---- 数据 ----
         bool m_active = true;
         State m_state = State::Playing;
-        float m_pauseGuardTime = 0.0f;   // 刚进入暂停的宽限时间（秒）：这几帧内忽略 ESC/P，避免同一按键立刻关掉菜单（消息可能比物理状态晚到几帧）
+        // ESC 的边沿检测状态（PollPauseKeys 用）：按住不放只算按了一次
+        bool m_escapeDown = false;
 
         SurvivorsArt m_art;
         Ref<Shader> m_shader;
@@ -366,13 +467,27 @@ namespace OiEngine::Survivors {
         int m_exp = 0;
         int m_expNext = 8;
         int m_pendingLevelUps = 0;
-        std::array<int, static_cast<int>(WeaponId::Count)> m_weaponLevel{ 1, 0, 0, 0 };
-        std::array<int, static_cast<int>(PassiveId::Count)> m_passive{ 0, 0, 0, 0, 0, 0, 0 };
+        int m_pendingWeaponPicks = 0;    // 每升到 5 的倍数就 +1（处理完才归零）
+        bool m_shopPending = false;      // 本关已通关、商店还没开（排队等升级 / 选武器处理完）
+        std::array<int, static_cast<int>(WeaponId::Count)> m_weaponLevel{ 0, 0, 0, 0 };   // 开局选的那把为 1
+        std::array<int, static_cast<int>(PassiveId::Count)> m_passive{};
         std::vector<UpgradeOption> m_options;
         float m_levelFlash = 0.0f;
         float m_levelUpLockout = 0.0f;   // 关闭升级面板后的缓冲时间（秒）
 
-        // 金币：击杀掉落、走近自动吸取；升级面板里刷新卡片的唯一货币
+        // 开局选择（State::Setup）：角色在角色类道具里的下标，武器是 WeaponId
+        int m_setupCharacter = 0;
+        int m_setupWeapon = 0;
+        ItemId m_character = ItemId::CharWatchman;   // 本局选定的角色（决定玩家配色与初始属性）
+
+        // 道具背包：件数（稀有度是道具的固定属性，不需要按件记）
+        std::array<int, static_cast<int>(ItemId::Count)> m_itemCount{};
+
+        // 商店
+        std::vector<ShopOffer> m_shopOffers;
+        int m_shopRerolls = 0;   // 本次商店已刷新次数（每次进商店清零）
+
+        // 金币：击杀掉落、走近自动吸取；刷新升级卡 / 刷新商店 / 买道具的货币
         int m_coins = 0;
         int m_coinsEarned = 0;   // 本局累计获得（结算面板展示）
         int m_rerollCount = 0;   // **本次选取**已刷新次数（每次开面板清零），刷新价 = 4 + 3 × 它

@@ -204,17 +204,18 @@ void SurvivorsLayer::InitWisps()
 
 void SurvivorsLayer::ResetRun()
 {
-    m_state = State::Playing;
+    // 清一局的全部状态，然后停在开局选择界面（选角色 + 武器），真正开打由 BeginRun 负责
+    m_state = State::Setup;
     m_time = 0.0f;
     m_kills = 0;
     m_damageDealt = 0.0f;
     m_shake = 0.0f;
 
-    // 关卡：回到第 1 关（30 秒），横幅提示开场
+    // 关卡：回到第 1 关（30 秒）
     m_stage = 1;
     m_stageTime = 0.0f;
     m_stageDuration = StageDuration(m_stage);
-    m_stageBanner = 2.2f;
+    m_stageBanner = 0.0f;
     m_stageBannerBoss = false;
     m_showHelp = false;
     m_showOptions = false;
@@ -226,9 +227,11 @@ void SurvivorsLayer::ResetRun()
     m_playerPosition = glm::vec2(0.0f, 0.0f);
     m_playerVelocity = glm::vec2(0.0f, 0.0f);
 
-    // 属性：回到开局裸值、清零被动，再同步一次生命上限
+    // 属性：回到开局裸值、清零被动与道具，再同步一次生命上限（角色加成在 BeginRun 里结算）
     m_baseStats = BARE_STATS;
-    m_passive = { 0, 0, 0, 0, 0, 0, 0 };
+    m_passive = {};
+    m_character = CharacterItem(m_setupCharacter);
+    ResetItems();
     m_playerHp = 0.0f;          // 避免 RecalculateStats 里的 clamp 读到上一局的血量
     RecalculateStats();
     m_playerHp = m_playerMaxHp;
@@ -242,7 +245,7 @@ void SurvivorsLayer::ResetRun()
     m_expNext = ExpNeeded(1);
     m_pendingLevelUps = 0;
     m_levelUpLockout = 0.0f;
-    m_weaponLevel = { 1, 0, 0, 0 };
+    m_weaponLevel.fill(0);      // 武器在 BeginRun 里按开局选择置 1 级
     m_options.clear();
     m_levelFlash = 0.0f;
 
@@ -269,13 +272,6 @@ void SurvivorsLayer::ResetRun()
 
     m_cameraFocus = m_playerPosition;
     InitWisps();
-
-    // 开局就在玩家附近放几只蝙蝠：第一波击杀正好把等级顶到 2，立刻展示升级卡
-    for (int i = 0; i < 4; ++i) {
-        const float angle = TAU * static_cast<float>(i) / 4.0f + Rand(-0.35f, 0.35f);
-        SpawnEnemy(EnemyType::Bat, m_playerPosition +
-                   glm::vec2(std::cos(angle), std::sin(angle)) * Rand(160.0f, 250.0f));
-    }
 }
 // ============================ 随机与数值 ============================
 
@@ -312,6 +308,11 @@ float SurvivorsLayer::AttackSpeedMul() const
 float SurvivorsLayer::CritChance() const
 {
     return m_baseStats.critChance;
+}
+
+float SurvivorsLayer::CritMultiplier() const
+{
+    return m_baseStats.critDamageMul;
 }
 
 float SurvivorsLayer::MoveSpeed() const
@@ -352,6 +353,10 @@ void SurvivorsLayer::OnUpdate()
         : 800.0f;
 
     const float deltaTime = std::min(Timer::GetDeltaTime(), 0.05f);
+
+    // ESC 先处理：走**物理轮询**（ImGui 抢焦点时事件收不到），带焦点判断，窗口失焦不响应。
+    // 事件通道（OnEvent）不再处理它，避免同一次按键被两条路径各处理一遍
+    PollPauseKeys();
 
     if (m_state == State::Playing) {
         UpdateGame(deltaTime);
@@ -407,10 +412,20 @@ void SurvivorsLayer::UpdateGame(float deltaTime)
         AdvanceStage();
     }
 
-    // 刚关掉升级面板时给一小段缓冲：避免金币还在往身上飞时又弹一次面板
+    // 刚关掉升级面板时给一小段缓冲：避免金币还在往身上飞时又弹一次面板。
+    // 面板排队统一走 ContinueRun：升级 → 每 5 级的武器选择 → 过关商店
     m_levelUpLockout = std::max(0.0f, m_levelUpLockout - deltaTime);
-    if (m_pendingLevelUps > 0 && m_levelUpLockout <= 0.0f && m_state == State::Playing) {
-        StartLevelUp();
+    if (m_state != State::Playing) {
+        return;
+    }
+    if (m_pendingLevelUps > 0) {
+        if (m_levelUpLockout <= 0.0f) {
+            StartLevelUp();
+        }
+    } else if (m_pendingWeaponPicks > 0) {
+        StartWeaponPick();
+    } else if (m_shopPending) {
+        OpenShop();
     }
 }
 
@@ -425,8 +440,8 @@ void SurvivorsLayer::AdvanceStage()
     // 过关清场：残留敌人与弹丸不带进下一关；地上的金币直接收进钱包（经验是击杀时已经给过的）
     for (const Coin& coin : m_coinDrops) {
         if (coin.alive) {
-            m_coins += coin.value;
-            m_coinsEarned += coin.value;
+            m_coins += CoinGain(coin.value);
+            m_coinsEarned += CoinGain(coin.value);
         }
     }
     m_enemies.clear();
@@ -437,6 +452,9 @@ void SurvivorsLayer::AdvanceStage()
     m_spawnTimer = 0.8f;
     m_shake = std::max(m_shake, 6.0f);
     SpawnRing(m_playerPosition, 240.0f, 0.6f, C_GOLD);
+
+    // 过关后就地开商店（排队：如果还挂着升级 / 选武器，先把那些处理完再由 ContinueRun 打开）
+    m_shopPending = true;
 
     // Boss 关直接切到 Boss 曲，普通关切回主曲
     EnsureBgm(m_stageBannerBoss);
@@ -516,6 +534,51 @@ void SurvivorsLayer::UpdateCamera(float deltaTime)
 }
 // ============================ 输入 ============================
 
+// 暂停 / 继续与「关面板」的 ESC 统一走这里（每帧轮询 + 边沿检测）。
+//
+// 为什么用轮询而不是等事件：ImGuiLayer 在 ImGui 窗口（暂停菜单、F4 调试面板、升级卡……）拿到焦点时
+// 会把键盘事件标成 handled（`io.WantCaptureKeyboard`），事件根本进不到游戏层——表现就是
+// 「点过调试面板之后 ESC 就不灵了」。而 `Input::IsKeyPressed` 读的是**物理按键状态**，
+// ImGui 是否占用键盘都不影响它；它仍然带 `GLFW_FOCUSED` 判断，
+// 所以窗口整体失焦（玩家切到别的程序）时依旧不响应，正是想要的行为。
+// 事件通道（OnEvent）不再处理 ESC，否则同一次按键会被两条路径各处理一遍（互相抵消）。
+// 暂停 / 继续只认 ESC（P 键已取消，避免和将来可能的其它用途抢键）
+void SurvivorsLayer::PollPauseKeys()
+{
+    const bool escapeDown = Input::IsKeyPressed(Key::Escape);
+    // 边沿检测：按住不放只算一次（IsKeyPressed 是状态语义，没有 repeat 事件）
+    const bool escapePressed = escapeDown && !m_escapeDown;
+    m_escapeDown = escapeDown;
+    if (!escapePressed) {
+        return;
+    }
+
+    // 帮助 / 设置面板优先吃掉 ESC：只关面板，不顺手开始 / 暂停 / 重开
+    if (m_showHelp || m_showOptions) {
+        m_showHelp = false;
+        m_showOptions = false;
+        return;
+    }
+
+    // ESC：按状态分派（标题 / 升级 / 选武器 / 结算不响应，保持原行为）
+    switch (m_state) {
+        case State::Setup:
+            ReturnToTitle();
+            break;
+        case State::Shop:
+            ContinueRun();
+            break;
+        case State::Playing:
+            m_state = State::Paused;
+            break;
+        case State::Paused:
+            m_state = State::Playing;
+            break;
+        default:
+            break;
+    }
+}
+
 void SurvivorsLayer::OnEvent(Event& event)
 {
     if (event.GetEventType() != EventType::KeyPressed) {
@@ -527,52 +590,29 @@ void SurvivorsLayer::OnEvent(Event& event)
     }
 
     const int key = keyEvent.GetKeyCode();
-    if (m_showHelp || m_showOptions) {
-        // 帮助 / 设置面板打开时只处理关闭：ESC 收起面板，不顺手开始 / 暂停 / 重开
-        if (key == Key::Escape) {
-            m_showHelp = false;
-            m_showOptions = false;
-            event.handled = true;
-        }
-        return;
-    }
-    if (m_state == State::Title) {
-        // 标题界面只响应开始；ESC 等快捷键留给游戏内
-        if (key == Key::Enter || key == Key::Space) {
-            ResetRun();
-            event.handled = true;
-        }
-        return;
-    }
-    if (key == Key::Escape) {
-        // ESC 不直接退出：暂停并弹出菜单，由玩家选择继续 / 重新开始 / 退出
-        if (m_state == State::Playing) {
-            m_state = State::Paused;
-            m_pauseGuardTime = 0.25f;
-        } else if (m_state == State::Paused) {
-            m_state = State::Playing;
-        }
-        event.handled = true;
-        return;
-    }
-    if (key == Key::R) {
-        ResetRun();
-        event.handled = true;
-        return;
-    }
-    if (key == Key::P) {
-        if (m_state == State::Playing) {
-            m_state = State::Paused;
-            m_pauseGuardTime = 0.25f;
-        } else if (m_state == State::Paused) {
-            m_state = State::Playing;
-        }
-        event.handled = true;
-        return;
-    }
+    // ESC 由 PollPauseKeys 统一处理（物理轮询），这里不再理会
     if (key == Key::F4) {
         m_showDebug = !m_showDebug;
         event.handled = true;
+        return;
+    }
+    if (m_showHelp || m_showOptions) {
+        return;   // 面板打开时其它键不生效（ESC 关面板也在轮询里）
+    }
+
+    if (m_state == State::Title) {
+        return;   // 标题界面不接键盘快捷键：「开始游戏」只能点按钮
+    }
+    if (m_state == State::Setup) {
+        // 开局选择：数字键选角色，Enter / 空格出发（ESC 回标题在轮询里）
+        if (key >= Key::D1 && key <= Key::D1 + CharacterCount() - 1) {
+            m_setupCharacter = key - Key::D1;
+            PlaySfx(SfxId::Pickup, 0.35f, 1.30f);
+            event.handled = true;
+        } else if (key == Key::Enter || key == Key::Space) {
+            BeginRun();
+            event.handled = true;
+        }
         return;
     }
     if (m_state == State::LevelUp) {
@@ -583,6 +623,30 @@ void SurvivorsLayer::OnEvent(Event& event)
             }
             event.handled = true;
         }
+        return;
+    }
+    if (m_state == State::WeaponPick) {
+        // 每 5 级：1~4 对应四把武器（鼠标点击是主路径，键盘只是额外一条）
+        if (key >= Key::D1 && key <= Key::D4) {
+            ChooseWeapon(key - Key::D1);
+            event.handled = true;
+        }
+        return;
+    }
+    if (m_state == State::Shop) {
+        // 商店里只认「离开」：Enter / 空格（ESC 在轮询里）
+        if (key == Key::Enter || key == Key::Space) {
+            ContinueRun();
+            event.handled = true;
+        }
+        return;
+    }
+
+    // 游戏内（Playing / Paused / GameOver / Victory）
+    if (key == Key::R) {
+        ResetRun();   // 重开一局 = 回到开局选择（角色 / 武器可以换）
+        event.handled = true;
+        return;
     }
 }
 

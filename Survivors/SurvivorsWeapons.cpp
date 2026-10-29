@@ -90,7 +90,7 @@ void SurvivorsLayer::PulseAura()
             return;
         }
         const bool crit = Rand(0.0f, 1.0f) < CritChance();
-        DamageEnemy(enemy, damage * (crit ? 2.0f : 1.0f), crit);
+        DamageEnemy(enemy, damage * (crit ? CritMultiplier() : 1.0f), crit);
     });
 
     SpawnRing(m_playerPosition, radius, 0.34f, C_AURA);
@@ -150,7 +150,7 @@ bool SurvivorsLayer::CastStorm()
         }
 
         const bool crit = Rand(0.0f, 1.0f) < CritChance();
-        DamageEnemy(enemy, STORM.damage[level] * DamageMul() * (crit ? 2.0f : 1.0f), crit);
+        DamageEnemy(enemy, STORM.damage[level] * DamageMul() * (crit ? CritMultiplier() : 1.0f), crit);
 
         Fx bolt;
         bolt.kind = FxKind::Bolt;
@@ -254,7 +254,7 @@ void SurvivorsLayer::UpdateProjectiles(float deltaTime)
             }
 
             const bool crit = Rand(0.0f, 1.0f) < CritChance();
-            DamageEnemy(enemy, projectile.damage * (crit ? 2.0f : 1.0f), crit);
+            DamageEnemy(enemy, projectile.damage * (crit ? CritMultiplier() : 1.0f), crit);
             SpawnParticles(enemy.position, crit ? 6 : 3,
                            projectile.kind == ShotKind::Scythe ? C_SCYTHE : C_BLADE,
                            180.0f, 6.0f, 0.35f);

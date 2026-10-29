@@ -57,11 +57,32 @@ namespace OiEngine::Survivors {
     constexpr int REROLL_BASE_COST = 4;
     constexpr int REROLL_STEP = 3;
 
+    // ---- 道具与商店 ----
+    // 每关通关后开一次商店：一次摆 4 件道具，可以整组刷新（价 = 6 + 4 × 本次已刷新次数）
+    constexpr int SHOP_SLOT_COUNT = 4;
+    constexpr int SHOP_REROLL_BASE = 6;
+    constexpr int SHOP_REROLL_STEP = 4;
+    // 按**道具固定稀有度**的基础价，再乘关卡系数（金币掉落同样是 +10%/关，所以相对价格基本稳定）
+    inline constexpr int ITEM_PRICE[4] = { 12, 22, 40, 66 };
+    constexpr float ITEM_PRICE_STAGE_STEP = 0.10f;
+    // 商店出货权重：按道具的固定稀有度，越稀有越难刷出来
+    inline constexpr float ITEM_WEIGHT[4] = { 6.0f, 3.0f, 1.5f, 0.6f };
+    // 独特道具的机制数值
+    constexpr float THORN_RADIUS = 240.0f;       // 荆棘之甲：反弹给这个半径内的敌人
+    constexpr float REVIVE_HP_FRACTION = 0.60f;  // 不朽之心：复活时回多少血
+
+    // ---- 武器 ----
+    // 四把武器各最高 5 级；开局选一把，之后**每 5 级**可以从全部武器里选一次
+    // （新武器 = 从 0 级解锁到 1 级，已有武器 = +1 级）。全部满级后这次机会折成金币
+    constexpr int WEAPON_COUNT = 4;
+    constexpr int WEAPON_MAX_LEVEL = 5;
+    constexpr int WEAPON_PICK_STEP = 5;
+    constexpr int WEAPON_PICK_FALLBACK_COINS = 30;
+
     // 属性卡没有层数上限，这两条上限防止极端堆叠把玩法打崩
     constexpr float MOVE_SPEED_CAP_MUL = 2.0f;   // 移动速度最多到开局裸值的 2 倍
     constexpr float CRIT_CHANCE_CAP = 1.0f;      // 暴击率最多 100%
     constexpr int CARD_COUNT = 3;                // 升级面板一次给三张卡
-    constexpr float HEAL_BASE_PERCENT = 0.30f;   // 血之祭（普通品质）回血比例
 
     // 关卡节奏：10 关，第 1 关存活 30 秒，之后每关 +5 秒（共 525 秒）；
     // 只有第 5 / 10 关有 Boss，怪物数值随关卡递增（见 SpawnEnemy）
@@ -88,7 +109,6 @@ namespace OiEngine::Survivors {
     inline const glm::vec4 C_STORM(0.70f, 0.86f, 1.00f, 1.0f);
     inline const glm::vec4 C_BLOOD(0.88f, 0.20f, 0.26f, 1.0f);
     inline const glm::vec4 C_GOLD(1.00f, 0.84f, 0.45f, 1.0f);
-    inline const glm::vec4 C_HEAL(0.55f, 0.95f, 0.70f, 1.0f);
     // 金币面额分档的拾取粒子色（越大越暖）
     inline const glm::vec4 COIN_COLORS[3] = {
         glm::vec4(1.00f, 0.86f, 0.44f, 1.0f),
@@ -106,6 +126,16 @@ namespace OiEngine::Survivors {
     };
     // 品质倍率：同一张属性卡按品质放大加成（普通 = 基准）
     constexpr float RARITY_MULTIPLIER[4] = { 1.0f, 1.6f, 2.4f, 3.5f };
+
+    // ---- 道具种类：普通 / 限制类 / 独特 / 角色 ----
+    inline constexpr const char* ITEM_CATEGORY_NAMES[4] = { "普通", "限制", "独特", "角色" };
+    inline const glm::vec4 ITEM_CATEGORY_COLORS[4] = {
+        glm::vec4(0.70f, 0.74f, 0.84f, 1.0f),   // 普通
+        glm::vec4(0.62f, 0.84f, 0.72f, 1.0f),   // 限制类
+        glm::vec4(0.86f, 0.66f, 1.00f, 1.0f),   // 独特
+        glm::vec4(1.00f, 0.78f, 0.42f, 1.0f),   // 角色
+    };
+    inline const glm::vec4 C_THORN(0.92f, 0.46f, 0.72f, 1.0f);   // 荆棘之甲反弹的环
 
     // ---- 武器调参（下标 = 等级 1~5，0 号位不用）----
     struct WeaponTuning {
@@ -164,7 +194,7 @@ namespace OiEngine::Survivors {
 
     // 敌人速度普遍接近（略低于）玩家，围上来之后就不容易被一条直线甩掉。
     // 怪物只有防御（没有穿甲）：防御是固定值，减伤率 = 防御 / (防御 + 100)
-    // （5 → 4.8%，12 → 10.7%，25 → 20%，40 → 28.6%），破甲按点数 / 按比例削它。
+    // （5 → 4.8%，12 → 10.7%，25 → 20%，40 → 28.6%），玩家的固定穿甲按点数扣它。
     // xp 是击杀当场直接结算的经验，coins 是掉在地上的金币数量（刷新升级卡的货币）
     inline constexpr EnemyTuning ENEMY_TUNING[5] = {
         { 10.0f, 238.0f, 15.0f, 2.0f, 2, 1, 0.0f },       // 蝙蝠
@@ -190,11 +220,12 @@ namespace OiEngine::Survivors {
     }
 
     // 伤害结算（攻防两端共用）：
-    //   1) 穿甲先削对方的防御值——百分比穿甲按比例削，固定穿甲再扣点（扣到 0 为止）；
+    //   1) 固定穿甲先扣对方的防御点数（扣到 0 为止，溢出部分不额外生效）；
     //   2) 剩下的防御进 防御/(防御+100) 换成减伤率，再乘到伤害上。
-    inline float ResolveDamage(float raw, float penFlat, float penPercent, float defense)
+    // 旧版还有一档「百分比穿甲」（按比例削防御），随「破甲」只给固定穿甲一起删掉了
+    inline float ResolveDamage(float raw, float penFlat, float defense)
     {
-        const float effectiveDefense = defense * (1.0f - std::clamp(penPercent, 0.0f, 1.0f)) - penFlat;
+        const float effectiveDefense = defense - penFlat;
         return raw * (1.0f - DefenseReduction(effectiveDefense));
     }
 

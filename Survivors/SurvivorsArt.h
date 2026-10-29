@@ -7,7 +7,12 @@
 namespace OiEngine::Survivors {
 
     struct SurvivorsArt {
-        Ref<VertexArray> player;        // 兜帽法师
+        // 四个角色各一套程序化形象，进游戏时按开局选择的那一个来画
+        Ref<VertexArray> playerWatchman;   // 守夜人：重甲 + 圆盾 + 短锤（最宽最厚重）
+        Ref<VertexArray> playerHunter;     // 猎手：尖兜帽 + 短斗篷 + 长弓（细长）
+        Ref<VertexArray> playerSister;     // 修女：头巾 + 米白长袍 + 十字杖（圆润明亮）
+        Ref<VertexArray> playerWarlock;    // 术士：尖帽 + 紫黑长袍 + 悬浮法球（最瘦）
+
         Ref<VertexArray> bat;
         Ref<VertexArray> ghoul;
         Ref<VertexArray> wraith;

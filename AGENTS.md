@@ -55,8 +55,8 @@ C++23 游戏引擎，架构参考 Hazel。Windows + MinGW GCC + Ninja + CMake（
   （多段式关卡 + 移动平台 + 尖刺陷阱 + 存档点；见 [平台跳跃](docs/平台跳跃.md)）
 - `Survivors/` — 独立可执行工程：类《吸血鬼幸存者》俯视角生存游戏
   （产物 `output/Survivors.exe`；游戏层按职责拆成 `SurvivorsGame` / `SurvivorsEnemies` / `SurvivorsWeapons` /
-  `SurvivorsCombat` / `SurvivorsUpgrade` / `SurvivorsRender` / `SurvivorsUi` 七个 .cpp，共享 `SurvivorsGame.h`，
-  调参表在 `SurvivorsInternal.h`，美术是 `SurvivorsArt.*`；见 [幸存者](docs/幸存者.md)）
+  `SurvivorsCombat` / `SurvivorsUpgrade` / `SurvivorsItems` / `SurvivorsRender` / `SurvivorsUi` 八个 .cpp，
+  共享 `SurvivorsGame.h`，调参表在 `SurvivorsInternal.h`，美术是 `SurvivorsArt.*`；见 [幸存者](docs/幸存者.md)）
 - `vendor/` — glad、glfw、spdlog、stb_image、imgui、glm、miniaudio（glfw/spdlog/imgui/glm 登记为 git submodule；miniaudio 单头源码直接入库）
 - 各可执行工程的 `assets/shader/` — 该工程用到的全部 GLSL（`engine/` 引擎 4 个 + `scenes/` 自己的场景），
   随各自 `assets/` 复制到 `output/assets/`；引擎 shader 在每个工程各存一份（改动需同步），约定见 [着色器](docs/着色器.md)

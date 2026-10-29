@@ -19,9 +19,8 @@ void SurvivorsLayer::DamageEnemy(Enemy& enemy, float damage, bool crit)
     if (!enemy.alive) {
         return;
     }
-    // 玩家进攻：自己的穿甲对目标的防御（怪物只有防御，没有穿甲）
-    const float dealt = ResolveDamage(damage, m_baseStats.penFlat, m_baseStats.penPercent,
-                                      enemy.defense);
+    // 玩家进攻：自己的固定穿甲扣目标防御（怪物只有防御，没有穿甲）
+    const float dealt = ResolveDamage(damage, m_baseStats.penFlat, enemy.defense);
     enemy.hp -= dealt;
     enemy.hitFlash = 0.18f;
     m_damageDealt += dealt;
@@ -92,7 +91,7 @@ void SurvivorsLayer::DamagePlayer(float amount)
         return;
     }
     // 玩家挨打：怪物没有穿甲，防御全额生效
-    const float taken = ResolveDamage(amount, 0.0f, 0.0f, m_baseStats.defense);
+    const float taken = ResolveDamage(amount, 0.0f, m_baseStats.defense);
     m_playerHp -= taken;
     m_hurtCooldown = 0.95f;
     m_hurtFlash = 1.0f;
@@ -100,7 +99,38 @@ void SurvivorsLayer::DamagePlayer(float amount)
     PlaySfx(SfxId::Hurt);
     SpawnParticles(m_playerPosition, 14, C_BLOOD, 300.0f, 8.0f, 0.55f);
 
+    // 荆棘之甲：把刚吃到的伤害按比例反弹给贴身的敌人（反弹的是结算后的伤害）
+    if (m_baseStats.thornRatio > 0.0f && taken > 0.0f) {
+        const float reflected = taken * m_baseStats.thornRatio;
+        m_grid.ForEachNear(m_playerPosition, THORN_RADIUS, [&](uint32_t index) {
+            if (index >= m_enemies.size()) {
+                return;
+            }
+            Enemy& enemy = m_enemies[index];
+            if (!enemy.alive || !CircleHit(enemy.position, enemy.radius, m_playerPosition, THORN_RADIUS)) {
+                return;
+            }
+            DamageEnemy(enemy, reflected, false);
+        });
+        SpawnRing(m_playerPosition, THORN_RADIUS, 0.32f, C_THORN);
+    }
+
     if (m_playerHp <= 0.0f) {
+        // 不朽之心：先把命续回来（每件只能拿一次，所以复活次数不会无限叠）
+        if (m_baseStats.reviveCharges > 0) {
+            --m_baseStats.reviveCharges;
+            m_playerHp = m_playerMaxHp * REVIVE_HP_FRACTION;
+            m_hurtCooldown = 1.8f;
+            m_shake = std::max(m_shake, 26.0f);
+            SpawnRing(m_playerPosition, 420.0f, 1.0f, C_GOLD);
+            SpawnFlash(m_playerPosition, 260.0f, 0.7f, glm::vec4(1.0f, 0.86f, 0.52f, 0.9f));
+            SpawnParticles(m_playerPosition, 36, C_GOLD, 420.0f, 12.0f, 0.8f);
+            PlaySfx(SfxId::LevelUp, 1.0f, 0.72f);
+            OI_INFO("Survivors: 不朽之心发动，以 {:.0f}% 生命复活（剩余次数 {}）",
+                    REVIVE_HP_FRACTION * 100.0f, m_baseStats.reviveCharges);
+            return;
+        }
+
         m_playerHp = 0.0f;
         m_playerAlive = false;
         m_state = State::GameOver;
@@ -122,8 +152,9 @@ void SurvivorsLayer::SpawnCoin(const glm::vec2& position, int value, bool burst)
     if (static_cast<int>(m_coinDrops.size()) >= MAX_COINS) {
         // 掉落表满了：把最老的一枚直接折成钱，避免击杀掉落的金币被静默吞掉
         if (!m_coinDrops.empty()) {
-            m_coins += m_coinDrops.front().value;
-            m_coinsEarned += m_coinDrops.front().value;
+            const int value = CoinGain(m_coinDrops.front().value);
+            m_coins += value;
+            m_coinsEarned += value;
             m_coinDrops.erase(m_coinDrops.begin());
         }
     }
@@ -241,11 +272,13 @@ void SurvivorsLayer::UpdateCoins(float deltaTime)
 
         if (distance < 26.0f) {
             coin.alive = false;
-            m_coins += coin.value;
-            m_coinsEarned += coin.value;
+            // 金币收益倍率（贪婪之匣）在这里统一折算，拾取提示展示的就是实际到手的数额
+            const int value = CoinGain(coin.value);
+            m_coins += value;
+            m_coinsEarned += value;
             PlaySfx(SfxId::Pickup, 1.0f, Rand(0.94f, 1.10f));
             SpawnParticles(coin.position, 4, COIN_COLORS[coin.tier], 130.0f, 5.0f, 0.3f);
-            SpawnCoinNumber(coin.position, coin.value);
+            SpawnCoinNumber(coin.position, value);
         }
     }
 }

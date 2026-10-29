@@ -26,6 +26,10 @@ void SurvivorsLayer::GainExp(int amount)
         m_exp -= m_expNext;
         ++m_level;
         ++m_pendingLevelUps;
+        // 每 5 级排一次武器选择（从全部武器里选：新武器或已有武器 +1 级）
+        if (m_level % WEAPON_PICK_STEP == 0) {
+            ++m_pendingWeaponPicks;
+        }
         m_expNext = ExpNeeded(m_level);
     }
 }
@@ -41,77 +45,26 @@ void SurvivorsLayer::StartLevelUp()
     BuildUpgradeOptions();
 }
 
-// 当前可选的全部卡：武器（未满级）+ 九种属性卡（无层数上限）+ 补给卡。
-// 这里只决定「有哪张卡」，品质与数值由 RollOption 生成（武器卡是等级进阶，不带品质）
+// 当前可选的全部卡：**只剩属性卡**（九种，无层数上限）。
+// 武器与立即回复已经移出卡池——武器改由「每 5 级选武器」，回复改由商店的血袋等道具提供。
+// 这里只决定「有哪张卡」，品质与数值由 RollOption 生成
 std::vector<SurvivorsLayer::UpgradeOption> SurvivorsLayer::BuildUpgradePool() const
 {
     std::vector<UpgradeOption> pool;
-
-    for (int weapon = 0; weapon < 4; ++weapon) {
-        const int level = m_weaponLevel[weapon];
-        if (level >= 5) {
-            continue;
-        }
-        UpgradeOption option;
-        option.kind = UpgradeKind::Weapon;
-        option.index = weapon;
-        option.color = WEAPON_COLORS[weapon];
-
-        if (level == 0) {
-            option.tag = "新武器";
-            option.title = std::string("解锁 · ") + WEAPON_NAMES[weapon];
-            switch (weapon) {
-                case 1: option.description = "以自身为中心脉动圣光，持续灼烧周围敌人。\n伤害 5 / 半径 120"; break;
-                case 2: option.description = "掷出回旋镰，飞出后折返，可反复切割路径上的敌人。\n伤害 22"; break;
-                case 3: option.description = "召唤雷暴，随机劈击附近敌人。\n伤害 34 / 落雷 2 道"; break;
-                default: option.description = "自动锁定最近敌人，射出旋转月刃。\n伤害 11 / 穿透 2"; break;
-            }
-        } else {
-            option.tag = std::format("武器 Lv.{}", level + 1);
-            option.title = std::format("{} {}", WEAPON_NAMES[weapon], ROMAN[level + 1]);
-            switch (weapon) {
-                case 0:
-                    option.description = std::format("伤害 {:.0f} → {:.0f}\n飞刃 {} 道 · 穿透 {}",
-                        BLADE.damage[level], BLADE.damage[level + 1],
-                        BLADE.count[level + 1], BLADE.pierce[level + 1]);
-                    break;
-                case 1:
-                    option.description = std::format("伤害 {:.0f} → {:.0f}\n光环半径 {:.0f} → {:.0f}",
-                        AURA.damage[level], AURA.damage[level + 1],
-                        AURA.radius[level], AURA.radius[level + 1]);
-                    break;
-                case 2:
-                    option.description = std::format("伤害 {:.0f} → {:.0f}\n回旋镰 {} 把",
-                        SCYTHE.damage[level], SCYTHE.damage[level + 1], SCYTHE.count[level + 1]);
-                    break;
-                default:
-                    option.description = std::format("伤害 {:.0f} → {:.0f}\n落雷 {} 道",
-                        STORM.damage[level], STORM.damage[level + 1], STORM.count[level + 1]);
-                    break;
-            }
-        }
-        pool.push_back(option);
-    }
-
     for (int passive = 0; passive < static_cast<int>(PassiveId::Count); ++passive) {
-        // 属性卡不再有层数上限：只要池子里还剩位置，就永远可以继续叠
+        // 属性卡没有层数上限：只要池子里还剩位置，就永远可以继续叠
         UpgradeOption option;
-        option.kind = UpgradeKind::Passive;
         option.index = passive;
         pool.push_back(option);
     }
-
-    UpgradeOption heal;
-    heal.kind = UpgradeKind::Heal;
-    pool.push_back(heal);
-
     return pool;
 }
 
-SurvivorsLayer::Rarity SurvivorsLayer::RollRarity()
+SurvivorsLayer::Rarity SurvivorsLayer::RollRarity(int depth)
 {
-    // 品质权重随等级成长：普通逐渐让位给稀有 / 史诗（关卡越深，好卡越多）
-    const float level = static_cast<float>(m_level);
+    // 品质权重随深度成长：普通逐渐让位给稀有 / 史诗（关卡越深 / 等级越高，好卡越多）。
+    // 升级卡用等级，商店用关卡深度（m_stage × 3）
+    const float level = static_cast<float>(std::max(1, depth));
     const float weights[4] = {
         std::max(18.0f, 58.0f - 1.4f * level),   // 普通
         26.0f + 0.2f * level,                    // 高级
@@ -135,36 +88,19 @@ SurvivorsLayer::Rarity SurvivorsLayer::RollRarity()
 SurvivorsLayer::UpgradeOption SurvivorsLayer::RollOption(const UpgradeOption& base)
 {
     UpgradeOption option = base;
-    option.rarity = RollRarity();
+    option.rarity = RollRarity(m_level);
+
     const int rarityIndex = static_cast<int>(option.rarity);
     const float multiplier = RARITY_MULTIPLIER[rarityIndex];
     option.color = RARITY_COLORS[rarityIndex];
-
-    switch (option.kind) {
-        case UpgradeKind::Weapon:
-            // 武器卡沿用武器配色与 Lv 标签（品质只属于属性卡 / 补给卡）
-            option.rarity = Rarity::Common;
-            option.color = WEAPON_COLORS[option.index];
-            break;
-        case UpgradeKind::Passive:
-            option.tag = std::format("{} · 加成 ×{:.1f}", RARITY_NAMES[rarityIndex], multiplier);
-            DescribePassive(option.index, multiplier, option.title, option.description);
-            break;
-        case UpgradeKind::Heal:
-            // 补给卡保留一点绿色底子，再按品质染色（越高品质越偏金）
-            option.tag = std::format("{} · 回血 ×{:.1f}", RARITY_NAMES[rarityIndex], multiplier);
-            option.title = "血之祭";
-            option.color = glm::mix(C_HEAL, RARITY_COLORS[rarityIndex], 0.55f);
-            option.description = std::format("立即恢复 {}% 最大生命。",
-                static_cast<int>(std::lround(HealFraction(option.rarity) * 100.0f)));
-            break;
-    }
+    option.tag = std::format("{} · 加成 ×{:.1f}", RARITY_NAMES[rarityIndex], multiplier);
+    DescribePassive(option.index, multiplier, option.title, option.description);
     return option;
 }
 
 bool SurvivorsLayer::SameCard(const UpgradeOption& a, const UpgradeOption& b)
 {
-    return a.kind == b.kind && a.index == b.index;
+    return a.index == b.index;
 }
 
 void SurvivorsLayer::BuildUpgradeOptions(const std::vector<UpgradeOption>& avoid)
@@ -229,31 +165,27 @@ void SurvivorsLayer::RerollOptions()
 
 SurvivorsLayer::PassiveGain SurvivorsLayer::PassiveGainFor(int passive, float multiplier)
 {
-    // 单张属性卡的加成 = 基准步长 × 品质倍率（普通 = 基准）。
-    // 描述与结算共用这一份算式，改数值只改这里
+    // 单张属性卡（祝福）的加成 = 基准步长 × 品质倍率（普通 = 基准）。
+    // 描述与结算共用这一份算式，改数值只改这里。
+    // 基准值是「上一版再砍到 1/3」的结果（累计比最初下调了约 75%），
+    // 配合品质倍率后跨度仍是 普通 ×1 ~ 史诗 ×3.5
     PassiveGain gain;
     switch (static_cast<PassiveId>(passive)) {
-        case PassiveId::Might:    gain.primary = 0.12f * multiplier; break;
-        case PassiveId::Haste:    gain.primary = 0.10f * multiplier; break;
-        case PassiveId::Swift:    gain.primary = BARE_STATS.moveSpeed * 0.07f * multiplier; break;
-        case PassiveId::Vitality: gain.primary = 8.0f * multiplier; break;
-        case PassiveId::Magnet:   gain.primary = BARE_STATS.pickupRadius * 0.35f * multiplier; break;
-        case PassiveId::Luck:     gain.primary = 0.06f * multiplier; break;
-        case PassiveId::Regen:    gain.primary = 0.4f * multiplier; break;
-        case PassiveId::Bulwark:  gain.primary = 8.0f * multiplier; break;
+        case PassiveId::Might:    gain.primary = 0.03f * multiplier; break;                        // 伤害 +3%
+        case PassiveId::Haste:    gain.primary = 0.025f * multiplier; break;                       // 攻速 +2.5%
+        case PassiveId::Swift:    gain.primary = BARE_STATS.moveSpeed * 0.0167f * multiplier; break; // 移速 +1.67% 裸值（≈ +4）
+        case PassiveId::Vitality: gain.primary = 2.0f * multiplier; break;                         // 生命 +2
+        case PassiveId::Magnet:   gain.primary = BARE_STATS.pickupRadius * 0.0833f * multiplier; break; // 拾取 +8.3% 裸值（≈ +18）
+        case PassiveId::Luck:     gain.primary = 0.015f * multiplier; break;                       // 暴击 +1.5%
+        case PassiveId::Regen:    gain.primary = 1.0f * multiplier; break;                         // 每秒回血 +1（单独调高：其余卡砍到 1/3 时它 ×10 回到这个量级）
+        case PassiveId::Bulwark:  gain.primary = 2.0f * multiplier; break;                         // 防御 +2
         case PassiveId::Sunder:
         default:
-            gain.primary = 0.08f * multiplier;    // 百分比穿甲
-            gain.secondary = 4.0f * multiplier;   // 固定穿甲
+            // 破甲**只给固定穿甲**，不再附带百分比穿甲
+            gain.primary = 1.0f * multiplier;
             break;
     }
     return gain;
-}
-
-float SurvivorsLayer::HealFraction(Rarity rarity)
-{
-    const float fraction = HEAL_BASE_PERCENT * RARITY_MULTIPLIER[static_cast<int>(rarity)];
-    return std::min(1.0f, fraction);
 }
 
 void SurvivorsLayer::DescribePassive(int passive, float multiplier, std::string& title, std::string& description) const
@@ -265,12 +197,14 @@ void SurvivorsLayer::DescribePassive(int passive, float multiplier, std::string&
 
     const PassiveGain gain = PassiveGainFor(passive, multiplier);
     switch (static_cast<PassiveId>(passive)) {
+        // 百分比类的步长已经很小（普通品质只有个位数百分比），显示保留一位小数，
+        // 否则 2.5% 会被 %.0f 四舍五入成 2%
         case PassiveId::Might:
-            description = std::format("全部伤害 +{:.0f}%\n累计 +{:.0f}%",
+            description = std::format("全部伤害 +{:.1f}%\n累计 +{:.1f}%",
                 gain.primary * 100.0f, (m_baseStats.damageMul - 1.0f + gain.primary) * 100.0f);
             break;
         case PassiveId::Haste:
-            description = std::format("攻击速度 +{:.0f}%\n累计 +{:.0f}%",
+            description = std::format("攻击速度 +{:.1f}%\n累计 +{:.1f}%",
                 gain.primary * 100.0f, (m_baseStats.attackSpeedMul - 1.0f + gain.primary) * 100.0f);
             break;
         case PassiveId::Swift: {
@@ -293,11 +227,11 @@ void SurvivorsLayer::DescribePassive(int passive, float multiplier, std::string&
             break;
         }
         case PassiveId::Luck:
-            description = std::format("暴击率 +{:.0f}%（暴击双倍伤害）\n累计 {:.0f}% · 上限 100%",
+            description = std::format("暴击率 +{:.1f}%（暴击双倍伤害）\n累计 {:.1f}% · 上限 100%",
                 gain.primary * 100.0f, std::min(CRIT_CHANCE_CAP, CritChance() + gain.primary) * 100.0f);
             break;
         case PassiveId::Regen:
-            description = std::format("每秒回复 +{:.2f} 生命\n累计 {:.2f}/秒",
+            description = std::format("每秒回复 +{:.1f} 生命\n累计 {:.1f}/秒",
                 gain.primary, m_baseStats.regenPerSecond + gain.primary);
             break;
         case PassiveId::Bulwark: {
@@ -307,13 +241,11 @@ void SurvivorsLayer::DescribePassive(int passive, float multiplier, std::string&
             break;
         }
         case PassiveId::Sunder:
-        default: {
-            const float percent = std::min(1.0f, m_baseStats.penPercent + gain.primary);
-            description = std::format("百分比穿甲 +{:.0f}% · 固定穿甲 +{:.0f}\n累计 {:.0f}% / {:.0f} 点",
-                gain.primary * 100.0f, gain.secondary, percent * 100.0f,
-                m_baseStats.penFlat + gain.secondary);
+        default:
+            // 破甲只加固定穿甲（百分比穿甲已从这张卡上移除）
+            description = std::format("固定穿甲 +{:.0f}（无视对方这么多点防御）\n累计 {:.0f} 点",
+                gain.primary, m_baseStats.penFlat + gain.primary);
             break;
-        }
     }
 }
 
@@ -325,73 +257,54 @@ void SurvivorsLayer::ApplyUpgrade(int optionIndex)
     const UpgradeOption option = m_options[optionIndex];
     const float multiplier = RARITY_MULTIPLIER[static_cast<int>(option.rarity)];
 
-    switch (option.kind) {
-        case UpgradeKind::Weapon:
-            m_weaponLevel[option.index] = std::min(5, m_weaponLevel[option.index] + 1);
+    ++m_passive[option.index];   // 属性卡没有上限，层数只用于展示与描述
+    // 成长直接累加进基础属性：百分比型步长按开局裸值取比例，线性叠加（不随当前值复利）
+    const PassiveGain gain = PassiveGainFor(option.index, multiplier);
+    switch (static_cast<PassiveId>(option.index)) {
+        case PassiveId::Might:
+            m_baseStats.damageMul += gain.primary;
             break;
-        case UpgradeKind::Passive: {
-            ++m_passive[option.index];   // 属性卡没有上限，层数只用于展示与描述
-            // 成长直接累加进基础属性：百分比型步长按开局裸值取比例，线性叠加（不随当前值复利）
-            const PassiveGain gain = PassiveGainFor(option.index, multiplier);
-            switch (static_cast<PassiveId>(option.index)) {
-                case PassiveId::Might:
-                    m_baseStats.damageMul += gain.primary;
-                    break;
-                case PassiveId::Haste:
-                    m_baseStats.attackSpeedMul += gain.primary;
-                    break;
-                case PassiveId::Swift:
-                    m_baseStats.moveSpeed = std::min(m_baseStats.moveSpeed + gain.primary,
-                                                     BARE_STATS.moveSpeed * MOVE_SPEED_CAP_MUL);
-                    break;
-                case PassiveId::Vitality:
-                    m_baseStats.maxHp += gain.primary;
-                    break;
-                case PassiveId::Magnet:
-                    m_baseStats.pickupRadius += gain.primary;
-                    break;
-                case PassiveId::Luck:
-                    m_baseStats.critChance = std::min(CRIT_CHANCE_CAP, m_baseStats.critChance + gain.primary);
-                    break;
-                case PassiveId::Bulwark:
-                    m_baseStats.defense += gain.primary;
-                    break;
-                case PassiveId::Sunder:
-                    m_baseStats.penPercent = std::min(1.0f, m_baseStats.penPercent + gain.primary);
-                    m_baseStats.penFlat += gain.secondary;
-                    break;
-                case PassiveId::Regen:
-                default:
-                    m_baseStats.regenPerSecond += gain.primary;
-                    break;
-            }
+        case PassiveId::Haste:
+            m_baseStats.attackSpeedMul += gain.primary;
             break;
-        }
-        case UpgradeKind::Heal:
+        case PassiveId::Swift:
+            m_baseStats.moveSpeed = std::min(m_baseStats.moveSpeed + gain.primary,
+                                             BARE_STATS.moveSpeed * MOVE_SPEED_CAP_MUL);
+            break;
+        case PassiveId::Vitality:
+            m_baseStats.maxHp += gain.primary;
+            break;
+        case PassiveId::Magnet:
+            m_baseStats.pickupRadius += gain.primary;
+            break;
+        case PassiveId::Luck:
+            m_baseStats.critChance = std::min(CRIT_CHANCE_CAP, m_baseStats.critChance + gain.primary);
+            break;
+        case PassiveId::Bulwark:
+            m_baseStats.defense += gain.primary;
+            break;
+        case PassiveId::Sunder:
+            m_baseStats.penFlat += gain.primary;   // 只加固定穿甲
+            break;
+        case PassiveId::Regen:
+        default:
+            m_baseStats.regenPerSecond += gain.primary;
             break;
     }
 
     // 成长已经写进基础属性，这里只需要同步生命上限（并钳制当前血量）
     RecalculateStats();
 
-    if (option.kind == UpgradeKind::Passive && option.index == static_cast<int>(PassiveId::Vitality)) {
-        m_playerHp = std::min(m_playerMaxHp,
-                              m_playerHp + PassiveGainFor(option.index, multiplier).primary);
-    } else if (option.kind == UpgradeKind::Heal) {
-        m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_playerMaxHp * HealFraction(option.rarity));
+    // 体魄额外补上「多出来的那份血」
+    if (option.index == static_cast<int>(PassiveId::Vitality)) {
+        m_playerHp = std::min(m_playerMaxHp, m_playerHp + gain.primary);
     }
 
     SpawnRing(m_playerPosition, 110.0f, 0.5f, option.color);
     SpawnParticles(m_playerPosition, 12, option.color, 200.0f, 7.0f, 0.5f);
 
     --m_pendingLevelUps;
-    m_rerollCount = 0;   // 下一次选取重新计价（面板关掉后暂停面板显示的就是首刷价）
-    if (m_pendingLevelUps > 0) {
-        BuildUpgradeOptions();
-    } else {
-        m_state = State::Playing;
-        m_levelFlash = 1.0f;
-        m_levelUpLockout = 1.5f;
-    }
+    // 升级 → 选武器 → 商店 的排队统一交给 ContinueRun（它顺便把刷新计数清零）
+    ContinueRun();
 }
 

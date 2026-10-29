@@ -42,11 +42,30 @@
 实测 Enter 能开始游戏、按住 D 角色正常移动（坐标 0 → 682）。
 双通道回归：ESC 按一次**只**暂停、2.5 秒后菜单仍在，再按一次继续；P 同样一次生效。
 
-**给游戏的提醒：不要用 `ImGui::IsKeyPressed` 做「同一个键既开又关」的兜底。** 引擎接管按键后，
-ImGui 仍然会收到系统那份按键（它走自己的 GLFW 后端），在暂停面板打开时（面板是交互窗口，会吃掉
-游戏层的事件）就很容易出现「刚开就被自己关掉」。Survivors 的做法可以参考：兜底只用
-`IsKeyPressed(key, /*repeat=*/false)`（只在按下那一帧为真），并且开面板后给 0.25 秒的时间宽限
-（`m_pauseGuardTime`），避免系统消息比物理状态晚到几帧时被同一个按键关掉。
+**ImGui 会吞掉键盘事件（踩过的坑：ESC 不灵了）**：`ImGuiLayer::OnEvent` 在 `io.WantCaptureKeyboard`
+为真时把键盘事件标成 `handled`，`Application::OnEvent` 从栈顶往下派发、遇到 `handled` 就中断——
+所以只要游戏里有任何 ImGui 窗口拿到焦点（点一下 F4 调试面板、拖动暂停菜单里的滑条），
+ESC 这类键盘事件就**根本进不到游戏层**，表现为「点过调试面板之后 ESC 就无法暂停」。
+
+**更隐蔽的一半：HUD 窗口也会让它「常真」。** `io.WantCaptureKeyboard` 包含 `io.NavActive`，
+而 `NavActive` 只要求「有一个可聚焦的 ImGui 窗口是 NavWindow」——HUD 上放一个按钮窗口、又没写
+`NoFocusOnAppearing`，它一出现就会被 ImGui 聚焦，于是**整个游戏期间的键盘事件全被吞掉**
+（连 F4 / R 都失效，表现为「快捷键时灵时不灵」）。规矩：
+**纯 HUD 控件要么 `NoInputs`，要么至少加上 `NoFocusOnAppearing | NoNavFocus`**；
+F4 调试面板里有一行「ImGui 键盘捕获 / 导航」可以一眼看出当前状态。
+
+正确做法是**在游戏层每帧轮询物理按键**，而不是等事件：`Input::IsKeyPressed` 读
+`GetAsyncKeyState`，ImGui 是否占用键盘都不影响它；它仍然带 `GLFW_FOCUSED` 判断，
+所以窗口整体失焦（玩家切到别的程序）时依旧返回 false、不响应按键——这正是想要的行为。
+Survivors 的 `PollPauseKeys()` 就是：每帧读一次 ESC、自己做**边沿检测**（按住只算一次），
+再按状态分派（暂停菜单 / 关面板 / 商店离开 / 选角回标题）。附带好处是**暂停不需要宽限时间**：
+一次物理按下 = 一次切换，不存在「同一个 ESC 把刚开的菜单关掉」，`m_pauseGuardTime` 已删除。
+注意这条**不要**做成「无视焦点」的全局热键：窗口整体失焦时不该响应，否则在别的程序里按 ESC 也会停游戏。
+
+**给游戏的提醒：同一次按键只让一条路径处理。** `ImGui::IsKeyPressed` 也能读到同一个键
+（ImGui 走自己的 GLFW 后端），如果事件通道、游戏层轮询、ImGui 兜底三处都处理 ESC，就会出现
+「开了面板又被自己关掉」。约定是：ESC 这类系统键**只由游戏层轮询处理**，
+`OnEvent` 与 ImGui 都不再碰它们。
 
 需要**文本输入**的工程显式调用 `Application::Get().GetWindow().SetImeEnabled(true)`（Win32 实现是
 `IACE_DEFAULT` 把默认上下文挂回去），用完再 `false`。注意：在 ImGui `InputText` 已经激活时挂回 IME，
