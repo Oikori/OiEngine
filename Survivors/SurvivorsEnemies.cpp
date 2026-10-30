@@ -208,12 +208,13 @@ void SurvivorsLayer::SpawnEnemy(EnemyType type, const glm::vec2& position)
     enemy.speed = tuning.speed;
     enemy.phase = Rand(0.0f, TAU);
 
-    // 数值随关卡递增：血量 +30%/关、伤害 +12%/关、防御 +8%/关、经验 +10%/关、金币 +10%/关
+    // 数值随关卡递增：血量 +30%/关、伤害 +12%/关、防御 +8%/关
+    // 经验与金币**不随关卡放大**，直接用表里的固定值（掉落节奏靠刷怪量收紧来提升）
     const float stageScale = static_cast<float>(m_stage - 1);
     enemy.damage = tuning.damage * (1.0f + 0.12f * stageScale);
     enemy.defense = tuning.defense * (1.0f + 0.08f * stageScale);
-    enemy.xp = std::max(1, static_cast<int>(std::lround(tuning.xp * (1.0f + 0.10f * stageScale))));
-    enemy.coins = std::max(1, static_cast<int>(std::lround(tuning.coins * (1.0f + 0.10f * stageScale))));
+    enemy.xp = tuning.xp;
+    enemy.coins = tuning.coins;
 
     const float hp = tuning.hp * (1.0f + 0.30f * stageScale);
     enemy.hp = hp;

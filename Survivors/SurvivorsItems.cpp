@@ -96,15 +96,15 @@ SurvivorsLayer::ItemGain SurvivorsLayer::ItemGainFor(ItemId id)
         case ItemId::BloodBag:     gain.primary = 0.30f;                        break;   // 立刻回复的比例
         case ItemId::Whetstone:    gain.primary = 5.0f;                         break;   // 固定穿甲
         case ItemId::SoulLamp:     gain.primary = 35.0f;                        break;   // 拾取范围
-        case ItemId::IronPlate:    gain.primary = 10.0f;                        break;   // 防御
+        case ItemId::IronPlate:    gain.primary = 5.0f;                         break;   // 防御
         case ItemId::HunterMark:   gain.primary = 0.07f;                        break;   // 暴击率
         case ItemId::StarBoots:    gain.primary = BARE_STATS.moveSpeed * 0.06f; break;   // 移速（按裸值百分比）
         // 限制类
         case ItemId::Grail:        gain.primary = 0.60f;                        break;   // 每秒回复
         case ItemId::BloodSigil:   gain.primary = 0.12f;                        break;   // 伤害加成
         case ItemId::GaleFeather:  gain.primary = 0.10f;                        break;   // 攻速加成
-        case ItemId::DragonScale:  gain.primary = 18.0f;                                 // 防御
-                                   gain.secondary = 12.0f; break;                        // 生命上限
+        case ItemId::DragonScale:  gain.primary = 9.0f;                                  // 防御
+                                   gain.secondary = 6.0f; break;                         // 生命上限
         // 独特类
         case ItemId::UndyingHeart: gain.primary = REVIVE_HP_FRACTION; break;             // 复活时回血比例
         case ItemId::ThornMail:    gain.primary = 1.20f; break;                          // 反弹比例
