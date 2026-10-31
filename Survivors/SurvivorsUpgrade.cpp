@@ -26,6 +26,8 @@ void SurvivorsLayer::GainExp(int amount)
         m_exp -= m_expNext;
         ++m_level;
         ++m_pendingLevelUps;
+        // 升级事件：成长之书回血 / 星辉残页加穿甲都挂在这里
+        RaiseEvent(EventId::LevelUp, m_playerPosition);
         // 每 5 级排一次武器选择（从全部武器里选：新武器或已有武器 +1 级）
         if (m_level % WEAPON_PICK_STEP == 0) {
             ++m_pendingWeaponPicks;
@@ -155,6 +157,8 @@ void SurvivorsLayer::RerollOptions()
 
     m_coins -= cost;
     ++m_rerollCount;
+    // 消费事件：刷新升级卡也算花钱
+    RaiseEvent(EventId::SpendCoins, m_playerPosition, cost);
 
     // 整组刷新：三张一起换（新的一手内部不重复，也尽量不重复刚才那三张）
     const std::vector<UpgradeOption> previous = m_options;
@@ -176,8 +180,8 @@ SurvivorsLayer::PassiveGain SurvivorsLayer::PassiveGainFor(int passive, float mu
         case PassiveId::Haste:    gain.primary = 0.025f * multiplier; break;                       // 攻速 +2.5%
         case PassiveId::Swift:    gain.primary = BARE_STATS.moveSpeed * 0.0167f * multiplier; break; // 移速 +1.67% 裸值（≈ +4）
         case PassiveId::Vitality: gain.primary = 2.0f * multiplier; break;                         // 生命 +2
-        case PassiveId::Magnet:   gain.primary = BARE_STATS.pickupRadius * 0.0833f * multiplier; break; // 拾取 +8.3% 裸值（≈ +18）
-        case PassiveId::Luck:     gain.primary = 0.015f * multiplier; break;                       // 暴击 +1.5%
+        case PassiveId::Crit:     gain.primary = 0.015f * multiplier; break;                       // 暴击率 +1.5%
+        case PassiveId::CritDamage: gain.primary = 0.15f * multiplier; break;                      // 暴击伤害 +15%
         case PassiveId::Regen:    gain.primary = 1.0f * multiplier; break;                         // 每秒回血 +1（单独调高：其余卡砍到 1/3 时它 ×10 回到这个量级）
         case PassiveId::Bulwark:  gain.primary = 2.0f * multiplier; break;                         // 防御 +2
         case PassiveId::Sunder:
@@ -207,10 +211,9 @@ void SurvivorsLayer::DescribePassive(int passive, float multiplier, std::string&
                 gain.primary * 100.0f, (m_baseStats.attackSpeedMul - 1.0f + gain.primary) * 100.0f);
             break;
         case PassiveId::Swift: {
-            const float after = std::min(m_baseStats.moveSpeed + gain.primary,
-                                         BARE_STATS.moveSpeed * MOVE_SPEED_CAP_MUL);
-            description = std::format("移动速度 +{:.0f}（上限 ×{:.1f}）\n当前 {:.0f}（+{:.0f}%）",
-                gain.primary, MOVE_SPEED_CAP_MUL, after,
+            const float after = m_baseStats.moveSpeed + gain.primary;
+            description = std::format("移动速度 +{:.0f}（没有上限）\n当前 {:.0f}（+{:.0f}%）",
+                gain.primary, after,
                 (after - BARE_STATS.moveSpeed) / BARE_STATS.moveSpeed * 100.0f);
             break;
         }
@@ -218,17 +221,17 @@ void SurvivorsLayer::DescribePassive(int passive, float multiplier, std::string&
             description = std::format("最大生命 +{:.0f}，并立即回复 {:.0f}\n上限变为 {:.0f}",
                 gain.primary, gain.primary, MaxHp() + gain.primary);
             break;
-        case PassiveId::Magnet: {
-            const float pct = gain.primary / BARE_STATS.pickupRadius * 100.0f;
-            const float total = (PickupRadius() - BARE_STATS.pickupRadius + gain.primary) /
-                                BARE_STATS.pickupRadius * 100.0f;
-            description = std::format("金币拾取范围 +{:.0f}%\n累计 +{:.0f}%", pct, total);
+        case PassiveId::Crit:
+            description = std::format("暴击率 +{:.1f}%（暴击伤害 ×{:.1f}）\n累计 {:.1f}% · 上限 100%",
+                gain.primary * 100.0f, CritMultiplier(),
+                std::min(CRIT_CHANCE_CAP, CritChance() + gain.primary) * 100.0f);
+            break;
+        case PassiveId::CritDamage: {
+            const float after = m_baseStats.critDamageMul + gain.primary;
+            description = std::format("暴击伤害 +{:.0f}%\n当前 ×{:.2f}（暴击率 {:.1f}%）",
+                gain.primary * 100.0f, after, CritChance() * 100.0f);
             break;
         }
-        case PassiveId::Luck:
-            description = std::format("暴击率 +{:.1f}%（暴击双倍伤害）\n累计 {:.1f}% · 上限 100%",
-                gain.primary * 100.0f, std::min(CRIT_CHANCE_CAP, CritChance() + gain.primary) * 100.0f);
-            break;
         case PassiveId::Regen:
             description = std::format("每秒回复 +{:.1f} 生命\n累计 {:.1f}/秒",
                 gain.primary, m_baseStats.regenPerSecond + gain.primary);
@@ -267,17 +270,16 @@ void SurvivorsLayer::ApplyUpgrade(int optionIndex)
             m_baseStats.attackSpeedMul += gain.primary;
             break;
         case PassiveId::Swift:
-            m_baseStats.moveSpeed = std::min(m_baseStats.moveSpeed + gain.primary,
-                                             BARE_STATS.moveSpeed * MOVE_SPEED_CAP_MUL);
+            m_baseStats.moveSpeed += gain.primary;   // 移速不设上限
             break;
         case PassiveId::Vitality:
             m_baseStats.maxHp += gain.primary;
             break;
-        case PassiveId::Magnet:
-            m_baseStats.pickupRadius += gain.primary;
-            break;
-        case PassiveId::Luck:
+        case PassiveId::Crit:
             m_baseStats.critChance = std::min(CRIT_CHANCE_CAP, m_baseStats.critChance + gain.primary);
+            break;
+        case PassiveId::CritDamage:
+            m_baseStats.critDamageMul += gain.primary;   // 暴击伤害倍率（基础 2.0）
             break;
         case PassiveId::Bulwark:
             m_baseStats.defense += gain.primary;
@@ -303,6 +305,10 @@ void SurvivorsLayer::ApplyUpgrade(int optionIndex)
     SpawnParticles(m_playerPosition, 12, option.color, 200.0f, 7.0f, 0.5f);
 
     --m_pendingLevelUps;
+    // 选卡后给 1 秒无敌：面板关掉的瞬间周围往往已经围满了怪，
+    // 不缓冲一下就会出现「刚选完卡就被贴脸打掉半管血」。连续升级时冷却不递减，
+    // 所以实际无敌时间从真正回到战斗那一下开始算
+    m_hurtCooldown = std::max(m_hurtCooldown, LEVELUP_INVULN_TIME);
     // 升级 → 选武器 → 商店 的排队统一交给 ContinueRun（它顺便把刷新计数清零）
     ContinueRun();
 }

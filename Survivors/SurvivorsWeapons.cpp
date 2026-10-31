@@ -24,8 +24,8 @@ SurvivorsLayer::Enemy* SurvivorsLayer::FindNearestEnemy(const glm::vec2& origin,
             return;
         }
         Enemy& enemy = m_enemies[index];
-        if (!enemy.alive) {
-            return;
+        if (!enemy.alive || InShadow(enemy.position)) {
+            return;   // 阴影里的敌人打不到，索敌也跳过它，别把输出浪费在无敌目标上
         }
         const glm::vec2 offset = enemy.position - origin;
         const float distanceSq = offset.x * offset.x + offset.y * offset.y;
@@ -132,7 +132,8 @@ bool SurvivorsLayer::CastStorm()
             return;
         }
         const Enemy& enemy = m_enemies[index];
-        if (!enemy.alive || Length(enemy.position - m_playerPosition) > 620.0f) {
+        // 阴影里的敌人不能当落点：否则整道雷砸在无敌目标上，旁边的怪也白吃不到伤害
+        if (!enemy.alive || InShadow(enemy.position) || Length(enemy.position - m_playerPosition) > 620.0f) {
             return;
         }
         targets.push_back(index);

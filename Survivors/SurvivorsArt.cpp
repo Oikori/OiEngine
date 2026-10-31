@@ -74,6 +74,12 @@ namespace {
     const glm::vec4 GRASS_COLOR(0.18f, 0.30f, 0.26f, 1.0f);
     const glm::vec4 SIGIL_COLOR(0.92f, 0.78f, 0.42f, 0.75f);
 
+    // 场地围栏：暗铁栏 + 冷色受光边 + 柱顶一颗血色结界晶石（暗示「拦的是玩家」）
+    const glm::vec4 FENCE_METAL(0.30f, 0.28f, 0.38f, 1.0f);
+    const glm::vec4 FENCE_EDGE(0.54f, 0.52f, 0.66f, 1.0f);
+    const glm::vec4 FENCE_DARK(0.13f, 0.11f, 0.17f, 1.0f);
+    const glm::vec4 FENCE_GLOW(0.92f, 0.26f, 0.32f, 0.92f);
+
     // ---------------- 网格构建 ----------------
     struct MeshBuilder {
         std::vector<float> vertices;  // 交错：位置 xyz + 颜色 rgba
@@ -665,7 +671,8 @@ namespace {
         for (int i = 0; i <= SEGMENTS; ++i) {
             const float t = static_cast<float>(i) / static_cast<float>(SEGMENTS);
             const float y = -0.5f + t;
-            const float jitter = 0.055f * std::sin(t * 17.0f) + 0.035f * std::sin(t * 41.0f + 1.7f);
+            // 抖动从底端 0 开始（乘 t）：底边中点正好落在落点上，向上才逐渐歪成锯齿
+            const float jitter = (0.055f * std::sin(t * 17.0f) + 0.035f * std::sin(t * 41.0f + 1.7f)) * t;
             const float center = jitter;
             const float half = 0.085f * (1.0f - t) + 0.012f;
             if (i == 0) {
@@ -726,6 +733,29 @@ namespace {
         builder.AddTriangle({ 0.02f, -0.34f }, { 0.16f, -0.34f }, { 0.24f, 0.34f }, GRASS_COLOR, 0.01f);
         builder.AddTriangle({ 0.12f, -0.34f }, { 0.28f, -0.32f }, { 0.38f, 0.18f }, GRASS_COLOR, 0.01f);
         builder.AddTriangle({ -0.22f, -0.34f }, { -0.04f, -0.34f }, { -0.16f, 0.50f }, GRASS_COLOR, 0.02f);
+        return BuildMesh(builder);
+    }
+
+    // 场地围栏：立着的铁桩（尖头 + 一颗血色结界晶石），俯视 2.5D
+    Ref<VertexArray> CreateFencePost()
+    {
+        MeshBuilder builder;
+        builder.AddRect({ 0.0f, -0.55f }, { 0.55f, 0.09f }, glm::vec4(0.0f, 0.0f, 0.0f, 0.35f), 0.0f);
+        builder.AddRect({ 0.0f, 0.0f }, { 0.16f, 0.55f }, FENCE_METAL, 0.0f);
+        builder.AddRect({ -0.06f, 0.0f }, { 0.05f, 0.55f }, FENCE_EDGE, 0.01f);
+        builder.AddRect({ 0.0f, -0.30f }, { 0.16f, 0.06f }, FENCE_DARK, 0.01f);
+        builder.AddPolygon({ { -0.19f, 0.55f }, { 0.19f, 0.55f }, { 0.0f, 0.80f } }, FENCE_METAL, 0.02f);
+        builder.AddCircle({ 0.0f, 0.26f }, 0.07f, 10, FENCE_GLOW, 0.03f);
+        return BuildMesh(builder);
+    }
+
+    // 围栏横栏：贴地的一段，绘制时按段长沿着边拉伸
+    Ref<VertexArray> CreateFenceRail()
+    {
+        MeshBuilder builder;
+        builder.AddRect({ 0.0f, 0.0f }, { 0.5f, 0.5f }, FENCE_METAL, 0.0f);
+        builder.AddRect({ 0.0f, 0.20f }, { 0.5f, 0.16f }, FENCE_EDGE, 0.01f);
+        builder.AddRect({ 0.0f, -0.34f }, { 0.5f, 0.10f }, FENCE_DARK, 0.01f);
         return BuildMesh(builder);
     }
 
@@ -793,6 +823,8 @@ namespace OiEngine::Survivors {
         bolt = CreateBolt();
         tombstone = CreateTombstone();
         grass = CreateGrass();
+        fencePost = CreateFencePost();
+        fenceRail = CreateFenceRail();
         sigil = CreateSigil();
 
         lineGrid = CreateGrid(lineGridVertexCount);
@@ -821,6 +853,8 @@ namespace OiEngine::Survivors {
         bolt.reset();
         tombstone.reset();
         grass.reset();
+        fencePost.reset();
+        fenceRail.reset();
         sigil.reset();
         lineGrid.reset();
         lineGridVertexCount = 0;

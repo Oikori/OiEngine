@@ -1,10 +1,15 @@
-// 《永夜幸存者》事件系统：击杀 / 拾取金币 / 受伤 / 过关四类「事件」，以及挂在事件上的道具响应。
+// 《永夜幸存者》事件系统：击杀 / 拾取金币 / 受伤 / 过关 / 暴击 / 计时 / 消费 / 升级八类「事件」，
+// 以及挂在事件上的道具响应。
 //
 // 设计：事件的发生处只调用一次 RaiseEvent()——
 //   KillEnemy()        → EventId::Kill
 //   UpdateCoins()      → EventId::CoinPickup（金币进钱包那一刻，金额 = 实际到手面额）
 //   DamagePlayer()     → EventId::Hurt
 //   AdvanceStage()     → EventId::StageClear
+//   DamageEnemy()      → EventId::CritHit（暴击命中那一下，放在死亡判定之前）
+//   UpdateGame()       → EventId::Tick（每 TICK_EVENT_SECONDS 秒一次）
+//   BuyShopOffer / RerollShop / RerollOptions → EventId::SpendCoins（金额 = 实际花费）
+//   GainExp()          → EventId::LevelUp（每升一级）
 // 道具对这些事件的响应全部集中在本文件的 RaiseEvent 里。于是：
 //   新增一种事件   = EventId 加一项 + 在发生处发一次 + 在 switch 里写响应；
 //   新增一件事件道具 = ItemId / ITEM_DEFS 登记 + ItemGainFor / ApplyItemEffect 把数值写进
@@ -30,6 +35,9 @@ void SurvivorsLayer::ResetEvents()
     m_eventKillProgress = 0;
     m_eventCoinProgress = 0;
     m_eventHurtProgress = 0;
+    m_eventCritProgress = 0;
+    m_eventSpendProgress = 0;
+    m_eventTickTimer = 0.0f;
     m_eventDepth = 0;
 }
 
@@ -46,7 +54,7 @@ void SurvivorsLayer::RaiseEvent(EventId id, const glm::vec2& position, int amoun
         case EventId::Kill: {
             ++m_eventStats.kills;
 
-            // 噬魂匕：每次击杀回血（没有阈值，任何深度都生效）
+            // 血契：每次击杀回血（没有阈值，任何深度都生效）
             if (m_baseStats.killHeal > 0.0f) {
                 m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_baseStats.killHeal);
             }
@@ -136,6 +144,78 @@ void SurvivorsLayer::RaiseEvent(EventId id, const glm::vec2& position, int amoun
             }
             break;
         }
+        case EventId::CritHit: {
+            ++m_eventStats.crits;
+
+            // 淬血匕首：每次暴击回血（没有阈值，任何深度都生效）
+            if (m_baseStats.critHeal > 0.0f) {
+                m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_baseStats.critHeal);
+            }
+
+            // 破晓之刃：每 CRIT_EVENT_STEP 次暴击爆发一次
+            if (m_baseStats.critBurstDamage > 0.0f) {
+                m_eventCritProgress += std::max(1, amount);
+                while (m_eventCritProgress >= CRIT_EVENT_STEP) {
+                    m_eventCritProgress -= CRIT_EVENT_STEP;
+                    if (!chained) {
+                        SpawnCritBurst(position);
+                    }
+                }
+            }
+            break;
+        }
+        case EventId::Tick: {
+            ++m_eventStats.ticks;
+
+            // 沙漏：周期回血
+            if (m_baseStats.tickHeal > 0.0f) {
+                m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_baseStats.tickHeal);
+                SpawnParticles(position, 4, glm::vec4(0.62f, 0.96f, 0.74f, 1.0f), 110.0f, 4.0f, 0.30f);
+            }
+            // 节拍器：周期一击（伤害事件，连锁深度超限时不再引爆）
+            if (m_baseStats.tickBoltDamage > 0.0f && !chained) {
+                SpawnTickBolt();
+            }
+            break;
+        }
+        case EventId::SpendCoins: {
+            const int cost = std::max(1, amount);
+            m_eventStats.spendValue += cost;
+
+            // 贪婪契约 / 商人之瞳：按累计花费走阈值
+            if (m_baseStats.spendHeal > 0.0f || m_baseStats.spendDamageGain > 0.0f) {
+                m_eventSpendProgress += cost;
+                while (m_eventSpendProgress >= SPEND_EVENT_STEP) {
+                    m_eventSpendProgress -= SPEND_EVENT_STEP;
+                    if (m_baseStats.spendHeal > 0.0f) {
+                        m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_baseStats.spendHeal);
+                        SpawnParticles(position, 4, glm::vec4(0.60f, 0.96f, 0.72f, 1.0f),
+                                       120.0f, 4.0f, 0.30f);
+                    }
+                    if (m_baseStats.spendDamageGain > 0.0f) {
+                        m_baseStats.damageMul += m_baseStats.spendDamageGain;
+                    }
+                }
+            }
+            break;
+        }
+        case EventId::LevelUp: {
+            m_eventStats.levels += std::max(1, amount);
+
+            // 成长之书：升级回血
+            if (m_baseStats.levelHealRatio > 0.0f) {
+                const float before = m_playerHp;
+                m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_playerMaxHp * m_baseStats.levelHealRatio);
+                if (m_playerHp > before) {
+                    SpawnRing(position, 140.0f, 0.45f, glm::vec4(0.62f, 0.96f, 0.74f, 1.0f));
+                }
+            }
+            // 星辉残页：升级永久 +固定穿甲
+            if (m_baseStats.levelPenFlat > 0.0f) {
+                m_baseStats.penFlat += m_baseStats.levelPenFlat;
+            }
+            break;
+        }
         default:
             break;
     }
@@ -164,6 +244,49 @@ void SurvivorsLayer::SpawnKillBurst(const glm::vec2& position)
         }
         DamageEnemy(enemy, damage, false);
     });
+}
+
+void SurvivorsLayer::SpawnCritBurst(const glm::vec2& position)
+{
+    const float damage = m_baseStats.critBurstDamage * DamageMul();
+
+    SpawnRing(position, CRIT_BURST_RADIUS, 0.40f, C_CRIT);
+    SpawnParticles(position, 12, C_CRIT, 320.0f, 8.0f, 0.45f);
+    SpawnFlash(position, CRIT_BURST_RADIUS * 0.9f, 0.24f, glm::vec4(0.90f, 0.96f, 1.0f, 0.50f));
+    m_shake = std::max(m_shake, 4.0f);
+
+    m_grid.ForEachNear(position, CRIT_BURST_RADIUS, [&](uint32_t index) {
+        if (index >= m_enemies.size()) {
+            return;
+        }
+        Enemy& enemy = m_enemies[index];
+        if (!enemy.alive || !CircleHit(enemy.position, enemy.radius, position, CRIT_BURST_RADIUS)) {
+            return;
+        }
+        DamageEnemy(enemy, damage, false);
+    });
+}
+
+void SurvivorsLayer::SpawnTickBolt()
+{
+    Enemy* target = FindNearestEnemy(m_playerPosition, m_halfHeight * 1.6f);
+    if (target == nullptr) {
+        return;
+    }
+    const glm::vec2 impact = target->position;
+    const float damage = m_baseStats.tickBoltDamage * DamageMul();
+
+    Fx bolt;
+    bolt.kind = FxKind::Bolt;
+    bolt.position = impact;
+    bolt.radius = 220.0f;
+    bolt.lifetime = 0.30f;
+    bolt.color = C_TICK;
+    m_effects.push_back(bolt);
+
+    SpawnRing(impact, 160.0f, 0.30f, C_TICK);
+    PlaySfx(SfxId::Storm, 0.30f, 1.30f);
+    DamageEnemy(*target, damage, false);
 }
 
 void SurvivorsLayer::SpawnCoinBurst(const glm::vec2& position, int coinValue)
@@ -220,7 +343,7 @@ void SurvivorsLayer::SpawnHurtBurst(const glm::vec2& position)
 std::vector<std::string> SurvivorsLayer::EventSummary() const
 {
     std::vector<std::string> lines;
-    lines.reserve(4);
+    lines.reserve(8);
 
     std::string killLine = std::format("击杀 ×{}", m_eventStats.kills);
     if (m_baseStats.killBurstDamage > 0.0f) {
@@ -249,5 +372,50 @@ std::vector<std::string> SurvivorsLayer::EventSummary() const
     lines.push_back(std::move(hurtLine));
 
     lines.push_back(std::format("过关 ×{}", m_eventStats.stageClears));
+
+    std::string critLine = std::format("暴击 ×{}", m_eventStats.crits);
+    if (m_baseStats.critBurstDamage > 0.0f) {
+        critLine += std::format(" · 破晓之刃 {}/{}", m_eventCritProgress, CRIT_EVENT_STEP);
+    }
+    lines.push_back(std::move(critLine));
+
+    std::string tickLine = std::format("计时 ×{}（每 {:.0f} 秒）", m_eventStats.ticks, TICK_EVENT_SECONDS);
+    std::string tickTag;
+    if (m_baseStats.tickHeal > 0.0f) {
+        tickTag = "沙漏";
+    }
+    if (m_baseStats.tickBoltDamage > 0.0f) {
+        tickTag += tickTag.empty() ? "节拍器" : " / 节拍器";
+    }
+    if (!tickTag.empty()) {
+        tickLine += " · " + tickTag;
+    }
+    lines.push_back(std::move(tickLine));
+
+    std::string spendLine = std::format("消费 {} 币", m_eventStats.spendValue);
+    std::string spendTag;
+    if (m_baseStats.spendHeal > 0.0f) {
+        spendTag = "贪婪契约";
+    }
+    if (m_baseStats.spendDamageGain > 0.0f) {
+        spendTag += spendTag.empty() ? "商人之瞳" : " / 商人之瞳";
+    }
+    if (!spendTag.empty()) {
+        spendLine += std::format(" · {} {}/{}", spendTag, m_eventSpendProgress, SPEND_EVENT_STEP);
+    }
+    lines.push_back(std::move(spendLine));
+
+    std::string levelLine = std::format("升级 ×{}", m_eventStats.levels);
+    std::string levelTag;
+    if (m_baseStats.levelHealRatio > 0.0f) {
+        levelTag = "成长之书";
+    }
+    if (m_baseStats.levelPenFlat > 0.0f) {
+        levelTag += levelTag.empty() ? "星辉残页" : " / 星辉残页";
+    }
+    if (!levelTag.empty()) {
+        levelLine += " · " + levelTag;
+    }
+    lines.push_back(std::move(levelLine));
     return lines;
 }

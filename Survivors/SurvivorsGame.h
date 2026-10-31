@@ -18,7 +18,7 @@
 // 玩法：WASD 移动，武器自动索敌开火；击杀敌人**直接获得经验**，掉落物是金币（商店与刷新升级卡用）。
 // **开局先选一个角色和一把武器**；之后每次升级从三张**属性卡**里选一项（武器卡与立即回复已移出卡池），
 // **每 5 级**从四把武器里选一把（新武器或已有武器 +1 级）；**每关通关后开商店**买道具（可整组刷新）。
-// 道具有种类（普通 / 限制类 / 独特 / 角色）与稀有度（普通 / 高级 / 稀有 / 史诗）。
+// 道具有种类（普通 / 限制类 / 角色）与稀有度（普通 / 高级 / 稀有 / 史诗）。
 // 撑到黎明（第 10 关结束）即胜利。所有美术资源都是程序化几何，无图片依赖。
 //
 // 代码分工（所有 .cpp 都只定义 SurvivorsLayer 的成员函数，共享本头文件）：
@@ -65,37 +65,44 @@ namespace OiEngine::Survivors {
         enum class State { Title, Setup, Playing, LevelUp, WeaponPick, Shop, Paused, GameOver, Victory };
         enum class EnemyType { Bat = 0, Ghoul, Wraith, Brute, Boss, Count };
         enum class WeaponId { MoonBlade = 0, Aura, Scythe, Storm, Count };
-        enum class PassiveId { Might = 0, Haste, Swift, Vitality, Magnet, Luck, Regen, Bulwark, Sunder, Count };
+        enum class PassiveId { Might = 0, Haste, Swift, Vitality, Crit, CritDamage, Regen, Bulwark, Sunder, Count };
         enum class ShotKind { Blade, Scythe };
         enum class FxKind { Ring, Flash, Bolt };
         // 事件：游戏里会「发生」、道具可以挂钩的时刻。
         // 发生处（KillEnemy / 金币拾取 / DamagePlayer / AdvanceStage）只调用一次 RaiseEvent()，
         // 道具的响应全部集中在 SurvivorsEvents.cpp 的 RaiseEvent 里：
         // 新增一种事件 = 加一项枚举 + 在发生处发一次；新增一件事件道具 = 在 RaiseEvent 里读它。
-        enum class EventId { Kill = 0, CoinPickup, Hurt, StageClear, Count };
+        enum class EventId { Kill = 0, CoinPickup, Hurt, StageClear, CritHit, Tick, SpendCoins, LevelUp, Count };
         // 品质 / 稀有度：同一套四档（普通 / 高级 / 稀有 / 史诗），但用法不同——
         //   升级卡（属性卡）每次抽卡**掷**品质，倍率放大加成；
         //   道具的稀有度是**目录里写死的固定属性**（见 ItemDef::rarity），只决定展示色、价格与出货权重。
         enum class Rarity { Common = 0, Advanced, Rare, Epic, Count };
         // 道具种类：
         //   普通   —— 无持有上限，可以一直叠
-        //   限制类 —— 每件有持有上限（ItemCap 给 2~3）
-        //   独特   —— 全局只能持有一件（手上已有任意独特道具就不再出），每件也只能拿一次
+        //   限制类 —— 每件有持有上限（ItemCap 给 1~3；原先的「独特类」已并入这里，每件上限 1）
         //   角色   —— 开局选择的角色，固定史诗，不进商店
-        enum class ItemCategory { Normal = 0, Limited, Unique, Character, Count };
-        // 道具目录：顺序与 SurvivorsItems.cpp 里的 ITEM_DEFS 一一对应（读目录请走 ItemName / ItemColor）
+        enum class ItemCategory { Normal = 0, Limited, Character, Count };
+        // 道具目录：`ITEM_DEFS` 是 `unordered_map<ItemId, ItemDef>`（键就是 ItemId；读目录请走 ItemName / ItemColor）
         enum class ItemId {
             // 普通类：无持有上限
             BloodBag = 0, Whetstone, IronPlate, HunterMark, StarBoots, SoulLamp,
-            CoinHammer,                                  // 事件 · 拾取金币
+            IronNail, HunterCloak, MistLantern,
+            CrimsonPendant, MithrilRing, ShadowRobe, LumenCrown,   // 稀有 / 史诗档（可叠）
             // 限制类：有持有上限
+            CoinHammer,                                  // 事件 · 拾取金币
             BloodSigil, GaleFeather, Grail, DragonScale,
-            SoulDagger, WailingBell, ScavengerCharm,     // 事件 · 击杀 / 拾取金币
+            WailingBell, ScavengerCharm,                 // 事件 · 击杀 / 拾取金币
             MartyrStigma,                                // 事件 · 受伤
-            // 独特类：全局一件
+            ColdBracer, BloodRose, BrokenBlade, CursedRing, StarShard,
+            DawnBlade, BloodDagger,                      // 事件 · 暴击
+            Hourglass, Metronome,                        // 事件 · 计时
+            GreedPact, MerchantEye,                      // 事件 · 消费
+            TomeOfGrowth, StarlightPage,                 // 事件 · 升级
+            // 限制类（史诗档）：原「独特类」，每件上限 1
             UndyingHeart, ThornMail, GreedCoffin, MoonshotPupil,
             GreedChain,                                  // 事件 · 拾取金币
             DawnPact,                                    // 事件 · 过关
+            BerserkSigil, BloodPact,
             // 角色类：史诗，开局选择
             CharWatchman, CharHunter, CharSister, CharWarlock,
             Count
@@ -202,13 +209,13 @@ namespace OiEngine::Survivors {
             bool sold = false;
         };
 
-        // 道具目录条目（数据在 SurvivorsItems.cpp）：名字 / 种类 / 固定稀有度 / 持有上限（0 = 无上限）/ 配色
+        // 道具目录条目（数据在 SurvivorsItems.cpp）：名字 / 种类 / 固定稀有度 / 持有上限（0 = 无上限）。
+        // 颜色不存这里：普通 / 限制道具按稀有度取色（RARITY_COLORS），角色取 CHARACTER_COLORS
         struct ItemDef {
             const char* name = "";
             ItemCategory category = ItemCategory::Normal;
             Rarity rarity = Rarity::Common;
             int cap = 0;
-            glm::vec4 color{ 1.0f, 1.0f, 1.0f, 1.0f };
         };
 
         // 道具的单次加成（primary / secondary 的含义随道具不同，见 ItemGainFor）
@@ -217,8 +224,8 @@ namespace OiEngine::Survivors {
             float secondary = 0.0f;
         };
 
-        // 道具目录本体：唯一一份定义在 SurvivorsItems.cpp（数组下标 = ItemId）
-        static const ItemDef ITEM_DEFS[static_cast<int>(ItemId::Count)];
+        // 道具目录本体：唯一一份定义在 SurvivorsItems.cpp（键就是 ItemId，不再依赖枚举顺序）
+        static const std::unordered_map<ItemId, ItemDef> ITEM_DEFS;
 
         // 属性卡的单张加成（primary / secondary 的含义随被动不同，见 PassiveGainFor）
         struct PassiveGain {
@@ -280,6 +287,7 @@ namespace OiEngine::Survivors {
         void UpdatePlayer(float deltaTime);
         void UpdateEnemySpawning(float deltaTime);
         void AdvanceStage();
+        void TriggerVictory();   // 通关结算（计时撑满 / 第 10 关击杀血月使徒两条路径共用）
         void UpdateEnemies(float deltaTime);
         void UpdateWeapons(float deltaTime);
         void UpdateProjectiles(float deltaTime);
@@ -291,7 +299,8 @@ namespace OiEngine::Survivors {
 
         // ---- 输入（ESC / R 都走每帧物理轮询，ImGui 抢焦点时事件通道收不到）----
         void PollPauseKeys();
-        void PollHotkeys();   // R：面板里 = 整组刷新，游戏内 = 重开一局
+        void PollHotkeys();   // R：只在升级面板 / 商店里 = 整组刷新（游戏内重开改走结算面板按钮）
+        void OpenPauseMenu(); // 记住当前状态再切 Paused：继续时回到原面板（商店 / 升级卡）
 
         // ---- 武器 ----
         bool FireMoonBlade();
@@ -354,8 +363,7 @@ namespace OiEngine::Survivors {
         static void DescribeItem(ItemId id, std::string& title, std::string& description);
         void ResetItems();
         int ItemCount(ItemId id) const;
-        int UniqueHeld() const;                   // 手上的独特道具件数（>0 就不能再买独特）
-        bool CanAcquireItem(ItemId id) const;     // 种类上限 + 独特全局一件都在这里判
+        bool CanAcquireItem(ItemId id) const;     // 种类上限（限制类按 ItemCap）都在这里判
         void AcquireItem(ItemId id);              // 结算效果并记入背包（重复购买就是叠加）
         void ApplyItemEffect(ItemId id);
         int CoinGain(int base) const;             // 金币收益倍率（贪婪之匣）
@@ -367,6 +375,8 @@ namespace OiEngine::Survivors {
         std::vector<std::string> EventSummary() const;       // 暂停面板用：每行一个事件的累计与进度
         // 事件爆发（阈值到的那些效果）：范围伤害 + 世界反馈
         void SpawnKillBurst(const glm::vec2& position);      // 哀嚎钟：音波
+        void SpawnCritBurst(const glm::vec2& position);      // 破晓之刃：暴击爆发
+        void SpawnTickBolt();                                // 节拍器：计时落点一击
         void SpawnCoinBurst(const glm::vec2& position, int coinValue);   // 贪欲之链：金币碎片
         void SpawnHurtBurst(const glm::vec2& position);      // 受难者圣痕：暗焰
 
@@ -387,6 +397,7 @@ namespace OiEngine::Survivors {
         void RenderWorld();
         void DrawBackground();
         void DrawGround();
+        void DrawShadowZone();    // 围栏外的阴影（只在阴影里，敌人无敌）
         void DrawCoins();
         void DrawEnemies();
         void DrawPlayer();
@@ -437,7 +448,7 @@ namespace OiEngine::Survivors {
             int reviveCharges = 0;          // 不朽之心：阵亡时的复活次数
 
             // 事件类道具：只在对应事件发生时读取，不参与每帧结算（触发节奏见 SurvivorsInternal.h）
-            float killHeal = 0.0f;          // 噬魂匕：每次击杀回复的生命
+            float killHeal = 0.0f;          // 血契：每次击杀回复的生命
             float killBurstDamage = 0.0f;   // 哀嚎钟：每 KILL_EVENT_STEP 次击杀的音波伤害
             int coinEventBonus = 0;         // 铸币者之锤：每 COIN_EVENT_STEP 枚金币额外铸出的金币
             float coinHeal = 0.0f;          // 拾荒护符：每 COIN_EVENT_STEP 枚金币回复的生命
@@ -447,6 +458,15 @@ namespace OiEngine::Survivors {
             float stageDamageGain = 0.0f;   // 黎明誓约：每次过关永久 +伤害
             float stageMaxHpGain = 0.0f;    // 黎明誓约：每次过关永久 +生命上限
             float stageHealRatio = 0.0f;    // 黎明誓约：每次过关回复最大生命的比例
+            // 暴击 / 计时 / 消费 / 升级四类新事件的道具数值
+            float critBurstDamage = 0.0f;   // 破晓之刃：每 CRIT_EVENT_STEP 次暴击的爆发伤害
+            float critHeal = 0.0f;          // 淬血匕首：每次暴击回复的生命
+            float tickHeal = 0.0f;          // 沙漏：每 TICK_EVENT_SECONDS 秒回复的生命
+            float tickBoltDamage = 0.0f;    // 节拍器：每 TICK_EVENT_SECONDS 秒对最近敌人的伤害
+            float spendHeal = 0.0f;         // 贪婪契约：每 SPEND_EVENT_STEP 金币回复的生命
+            float spendDamageGain = 0.0f;   // 商人之瞳：每 SPEND_EVENT_STEP 金币永久 +伤害
+            float levelHealRatio = 0.0f;    // 成长之书：每次升级回复最大生命的比例
+            float levelPenFlat = 0.0f;      // 星辉残页：每次升级 +固定穿甲
         };
 
         // 开局裸值：ResetRun 重置成它；百分比型成长（移速 / 拾取半径）的每张卡步长也按它的比例给，
@@ -470,9 +490,11 @@ namespace OiEngine::Survivors {
         // ---- 数据 ----
         bool m_active = true;
         State m_state = State::Playing;
+        // 从哪个状态按下的暂停：ESC 继续时回到它（Playing 就回战斗，Shop / LevelUp 就回原面板）
+        State m_pauseReturnState = State::Playing;
         // ESC / R 的边沿检测状态（每帧轮询用）：按住不放只算按了一次
         bool m_escapeDown = false;
-        bool m_restartDown = false;
+        bool m_rerollDown = false;
 
         SurvivorsArt m_art;
         Ref<Shader> m_shader;
@@ -526,11 +548,18 @@ namespace OiEngine::Survivors {
             int coinValue = 0;    // 拾取金币的累计面额
             int hurts = 0;        // 受伤事件（次）
             int stageClears = 0;  // 过关事件（次）
+            int crits = 0;        // 暴击命中事件（次）
+            int ticks = 0;        // 计时事件（次，每 TICK_EVENT_SECONDS 秒一次）
+            int spendValue = 0;   // 花费金币的累计金额
+            int levels = 0;       // 升级事件（次）
         };
         EventStats m_eventStats;
         int m_eventKillProgress = 0;
         int m_eventCoinProgress = 0;
         int m_eventHurtProgress = 0;
+        int m_eventCritProgress = 0;
+        int m_eventSpendProgress = 0;
+        float m_eventTickTimer = 0.0f;
         int m_eventDepth = 0;
 
         // 商店

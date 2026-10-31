@@ -32,6 +32,8 @@ namespace OiEngine::Survivors {
         Ref<VertexArray> bolt;          // 闪电柱
         Ref<VertexArray> tombstone;     // 地面装饰：墓碑
         Ref<VertexArray> grass;         // 地面装饰：草丛
+        Ref<VertexArray> fencePost;     // 场地围栏：立柱（带结界晶石）
+        Ref<VertexArray> fenceRail;     // 场地围栏：横栏（一条，按段拉伸）
         Ref<VertexArray> sigil;         // 玩家脚下的法阵
 
         Ref<VertexArray> lineGrid;      // 世界网格线（用 RenderCommand::DrawLines 绘制）

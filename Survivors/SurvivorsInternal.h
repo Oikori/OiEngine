@@ -49,8 +49,25 @@ namespace OiEngine::Survivors {
     constexpr int MAX_DAMAGE_NUMBERS = 48;
     constexpr float PLAYER_RADIUS = 20.0f;
 
+    // ---- 场地围栏 ----
+    // 玩家只能在 ±ARENA_HALF 的方形场地内移动（围栏画在四条边上）。
+    // 敌人不拦：否则怪物会被关在栏杆外面，场地里反而空掉
+    constexpr float ARENA_HALF = 1100.0f;
+    constexpr float FENCE_SEGMENT = 260.0f;   // 围栏每段的长度（决定立柱密度）
+
+    // 围栏外的阴影区：视觉上被压暗，且**里面的敌人无敌**（伤害、索敌都跳过它）。
+    // 判定用中心点：敌人贴着围栏时以身子中心是否跨过围栏为准
+    inline bool InShadow(const glm::vec2& position)
+    {
+        return std::abs(position.x) > ARENA_HALF || std::abs(position.y) > ARENA_HALF;
+    }
+
     // 金币：地上的钱会过期消失（否则后期刷怪量会让掉落表无限增长）
     constexpr float COIN_LIFETIME = 22.0f;
+
+    // 选完升级卡回到战斗的无敌时间：面板一关，贴脸的敌人不至于立刻打掉一截血
+    // （复用 m_hurtCooldown：它 > 0 时接触伤害整段跳过，见 UpdateContactDamage）
+    constexpr float LEVELUP_INVULN_TIME = 1.0f;
 
     // 刷新升级卡的价格：每次刷新都更贵（计数按「本次选取」清零重算）：
     // 4 + 3 × 本次已刷新次数。金币收入随关卡放大，系数不随等级变化
@@ -62,12 +79,30 @@ namespace OiEngine::Survivors {
     constexpr int SHOP_SLOT_COUNT = 4;
     constexpr int SHOP_REROLL_BASE = 6;
     constexpr int SHOP_REROLL_STEP = 4;
-    // 按**道具固定稀有度**的基础价，再乘关卡系数（金币掉落同样是 +10%/关，所以相对价格基本稳定）
+    // 按**道具固定稀有度**的基础价，再乘关卡系数（分段二次）：
+    //   前 ITEM_PRICE_CURVE_KNEE（5）关：系数 = 1 + 0.20 × n，和原来的线性完全一致；
+    //   第 6 关起：在上面叠 + ITEM_PRICE_STAGE_ACCEL × (n - 5)²，越往后涨得越快
+    //   （n=8 时边际涨幅 3.0 倍、n=9 时 3.8 倍，见 ShopPriceScale）。
+    // 金币掉落是固定值、不随关卡涨，所以越往后买东西越吃力
     inline constexpr int ITEM_PRICE[4] = { 12, 22, 40, 66 };
-    constexpr float ITEM_PRICE_STAGE_STEP = 0.10f;
+    constexpr float ITEM_PRICE_STAGE_STEP = 0.20f;    // 前段每关 +20% 基础价
+    constexpr float ITEM_PRICE_STAGE_ACCEL = 0.08f;   // 第 6 关起的二次项系数
+    constexpr int ITEM_PRICE_CURVE_KNEE = 5;          // 前 5 关保持纯线性
+
+    // n = 已通过的关数（= stage - 1，进商店那一关的关卡号减 1）
+    inline float ShopPriceScale(int stage)
+    {
+        const float n = static_cast<float>(stage - 1);
+        const float linear = 1.0f + ITEM_PRICE_STAGE_STEP * n;
+        if (n <= static_cast<float>(ITEM_PRICE_CURVE_KNEE)) {
+            return linear;
+        }
+        const float past = n - static_cast<float>(ITEM_PRICE_CURVE_KNEE);
+        return linear + ITEM_PRICE_STAGE_ACCEL * past * past;
+    }
     // 商店出货权重：按道具的固定稀有度，越稀有越难刷出来
     inline constexpr float ITEM_WEIGHT[4] = { 6.0f, 3.0f, 1.5f, 0.6f };
-    // 独特道具的机制数值
+    // 原「独特类」道具（现归限制类，每件上限 1）的机制数值
     constexpr float THORN_RADIUS = 240.0f;       // 荆棘之甲：反弹给这个半径内的敌人
     constexpr float REVIVE_HP_FRACTION = 0.60f;  // 不朽之心：复活时回多少血
 
@@ -76,6 +111,11 @@ namespace OiEngine::Survivors {
     constexpr int KILL_EVENT_STEP = 12;    // 哀嚎钟：每 12 次击杀响一次
     constexpr int COIN_EVENT_STEP = 10;    // 铸币者之锤 / 拾荒护符：每累计 10 枚金币触发一次
     constexpr int HURT_EVENT_STEP = 5;     // 受难者圣痕：每 5 次受伤触发一次
+    // 新四类事件：暴击 / 计时 / 消费 / 升级
+    constexpr int CRIT_EVENT_STEP = 8;            // 破晓之刃：每 8 次暴击爆发一次
+    constexpr float CRIT_BURST_RADIUS = 220.0f;   // 破晓之刃：爆发半径
+    constexpr float TICK_EVENT_SECONDS = 8.0f;    // 沙漏 / 节拍器：每 8 秒触发一次
+    constexpr int SPEND_EVENT_STEP = 50;          // 贪婪契约 / 商人之瞳：每累计花费 50 金币触发一次
     // 事件爆发的范围
     constexpr float BELL_RADIUS = 260.0f;        // 哀嚎钟：音波半径
     constexpr float STIGMA_RADIUS = 240.0f;      // 受难者圣痕：暗焰半径
@@ -87,6 +127,8 @@ namespace OiEngine::Survivors {
     // 事件道具的反馈色
     inline const glm::vec4 C_BELL(0.74f, 0.64f, 1.00f, 1.0f);    // 哀嚎钟
     inline const glm::vec4 C_STIGMA(0.72f, 0.24f, 0.34f, 1.0f);  // 受难者圣痕
+    inline const glm::vec4 C_CRIT(0.86f, 0.94f, 1.00f, 1.0f);    // 破晓之刃：暴击爆发
+    inline const glm::vec4 C_TICK(0.60f, 0.92f, 0.86f, 1.0f);    // 节拍器：计时落点
 
     // ---- 武器 ----
     // 四把武器各最高 5 级；开局选一把，之后**每 5 级**可以从全部武器里选一次
@@ -96,8 +138,7 @@ namespace OiEngine::Survivors {
     constexpr int WEAPON_PICK_STEP = 5;
     constexpr int WEAPON_PICK_FALLBACK_COINS = 30;
 
-    // 属性卡没有层数上限，这两条上限防止极端堆叠把玩法打崩
-    constexpr float MOVE_SPEED_CAP_MUL = 2.0f;   // 移动速度最多到开局裸值的 2 倍
+    // 属性卡没有层数上限：移速**不设上限**（堆多少跑多快），只留暴击率这一条硬上限防止玩法被打崩
     constexpr float CRIT_CHANCE_CAP = 1.0f;      // 暴击率最多 100%
     constexpr int CARD_COUNT = 3;                // 升级面板一次给三张卡
 
@@ -138,19 +179,26 @@ namespace OiEngine::Survivors {
     inline const glm::vec4 RARITY_COLORS[4] = {
         glm::vec4(0.64f, 0.68f, 0.78f, 1.0f),   // 普通：灰
         glm::vec4(0.40f, 0.86f, 0.62f, 1.0f),   // 高级：绿
-        glm::vec4(0.56f, 0.68f, 1.00f, 1.0f),   // 稀有：蓝
+        glm::vec4(0.72f, 0.50f, 1.00f, 1.0f),   // 稀有：紫（商店卡片边框 / 稀有度标签 / 购买按钮同色）
         glm::vec4(1.00f, 0.74f, 0.32f, 1.0f),   // 史诗：金
     };
     // 品质倍率：同一张属性卡按品质放大加成（普通 = 基准）
     constexpr float RARITY_MULTIPLIER[4] = { 1.0f, 1.6f, 2.4f, 3.5f };
 
-    // ---- 道具种类：普通 / 限制类 / 独特 / 角色 ----
-    inline constexpr const char* ITEM_CATEGORY_NAMES[4] = { "普通", "限制", "独特", "角色" };
-    inline const glm::vec4 ITEM_CATEGORY_COLORS[4] = {
+    // ---- 道具种类：普通 / 限制类 / 角色（原先的「独特类」已并入限制类，每件上限 1）----
+    inline constexpr const char* ITEM_CATEGORY_NAMES[3] = { "普通", "限制", "角色" };
+    inline const glm::vec4 ITEM_CATEGORY_COLORS[3] = {
         glm::vec4(0.70f, 0.74f, 0.84f, 1.0f),   // 普通
         glm::vec4(0.62f, 0.84f, 0.72f, 1.0f),   // 限制类
-        glm::vec4(0.86f, 0.66f, 1.00f, 1.0f),   // 独特
         glm::vec4(1.00f, 0.78f, 0.42f, 1.0f),   // 角色
+    };
+    // 四个角色的配色（选角卡 / HUD / 法阵都取它）。道具目录本身不再存颜色：
+    // 普通 / 限制道具按稀有度取色，只有角色需要单独一套
+    inline const glm::vec4 CHARACTER_COLORS[4] = {
+        glm::vec4(0.66f, 0.78f, 1.00f, 1.0f),   // 守夜人：冰蓝
+        glm::vec4(0.62f, 0.90f, 0.66f, 1.0f),   // 猎手：苔绿
+        glm::vec4(0.96f, 0.88f, 0.70f, 1.0f),   // 修女：暖白
+        glm::vec4(0.86f, 0.52f, 1.00f, 1.0f),   // 术士：紫
     };
     inline const glm::vec4 C_THORN(0.92f, 0.46f, 0.72f, 1.0f);   // 荆棘之甲反弹的环
 
@@ -211,22 +259,22 @@ namespace OiEngine::Survivors {
 
     // 敌人速度普遍接近（略低于）玩家，围上来之后就不容易被一条直线甩掉。
     // 怪物只有防御（没有穿甲）：防御是固定值，减伤率 = 防御 / (防御 + 100)
-    // （10 → 9.1%，24 → 19.4%，50 → 33.3%，120 → 54.5%），玩家的固定穿甲按点数扣它。
-    // 血月使徒的 HP / 防御按普通怪（同级基准）的 3 倍档次给，所以体型与血量都明显压一档。
+    // （10 → 9.1%，24 → 19.4%，50 → 33.3%，100 → 50.0%），玩家的固定穿甲按点数扣它。
+    // 血月使徒的 HP / 防御按普通怪（同级基准）的 3~4 倍档次给，所以体型与血量都明显压一档。
     // xp 是击杀当场直接结算的经验，coins 是掉在地上的金币数量（刷新升级卡的货币）
     inline constexpr EnemyTuning ENEMY_TUNING[5] = {
         { 20.0f, 238.0f, 15.0f, 2.0f, 2, 1, 0.0f },         // 蝙蝠
         { 56.0f, 188.0f, 19.0f, 3.0f, 4, 2, 10.0f },        // 食尸鬼
         { 88.0f, 228.0f, 22.0f, 4.0f, 6, 3, 24.0f },        // 怨灵
         { 260.0f, 158.0f, 31.0f, 6.0f, 14, 7, 50.0f },      // 石魔
-        { 1200.0f, 300.0f, 46.0f, 10.0f, 100, 45, 120.0f }, // 血月使徒
+        { 1000.0f, 300.0f, 46.0f, 10.0f, 100, 45, 100.0f }, // 血月使徒
     };
 
     inline constexpr const char* WEAPON_NAMES[4] = { "月刃", "圣光环", "回旋镰", "雷暴" };
     inline const glm::vec4 WEAPON_COLORS[4] = { C_BLADE, C_AURA, C_SCYTHE, C_STORM };
     // 九种被动：属性卡没有层数上限（PASSIVE_MAX 已移除），成长全靠品质与堆叠
     inline constexpr const char* PASSIVE_NAMES[9] = {
-        "力量", "急速", "疾行", "体魄", "磁石", "幸运", "回春", "铁壁", "破甲",
+        "力量", "急速", "疾行", "体魄", "暴击", "爆伤", "回春", "铁壁", "破甲",
     };
     inline constexpr const char* ROMAN[6] = { "", "I", "II", "III", "IV", "V" };
 

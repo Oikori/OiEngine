@@ -31,6 +31,7 @@ void SurvivorsLayer::RenderWorld()
 
     DrawBackground();
     DrawGround();
+    DrawShadowZone();
     DrawCoins();
     DrawEnemies();
     DrawEffectsUnder();
@@ -106,6 +107,82 @@ void SurvivorsLayer::DrawGround()
             }
         }
     }
+
+    // ---- 场地围栏：沿四条边铺横栏 + 立柱（只限制玩家，敌人可以越过）----
+    const int segments = static_cast<int>(std::ceil(ARENA_HALF * 2.0f / FENCE_SEGMENT));
+    const float segLen = ARENA_HALF * 2.0f / static_cast<float>(segments);
+    const float viewX = m_halfWidth + 300.0f;
+    const float viewY = m_halfHeight + 300.0f;
+    for (int side = 0; side < 4; ++side) {
+        const bool horizontal = side < 2;
+        const float sign = (side % 2 == 0) ? -1.0f : 1.0f;
+        for (int i = 0; i < segments; ++i) {
+            const float along = -ARENA_HALF + (static_cast<float>(i) + 0.5f) * segLen;
+            const glm::vec2 position = horizontal ? glm::vec2(along, sign * ARENA_HALF)
+                                                  : glm::vec2(sign * ARENA_HALF, along);
+            if (std::abs(position.x - m_cameraFocus.x) > viewX ||
+                std::abs(position.y - m_cameraFocus.y) > viewY) {
+                continue;
+            }
+            const glm::mat4 rotation = horizontal ? glm::mat4(1.0f) : RotateZ(PI * 0.5f);
+            DrawMesh(m_art.fenceRail, Translate(glm::vec3(position.x, position.y, -7.15f)) * rotation *
+                                          Scale(glm::vec3(segLen, 24.0f, 1.0f)),
+                     glm::vec4(1.0f, 1.0f, 1.0f, 0.95f));
+        }
+        for (int i = 0; i <= segments; ++i) {
+            const float along = -ARENA_HALF + static_cast<float>(i) * segLen;
+            const glm::vec2 position = horizontal ? glm::vec2(along, sign * ARENA_HALF)
+                                                  : glm::vec2(sign * ARENA_HALF, along);
+            if (std::abs(position.x - m_cameraFocus.x) > viewX ||
+                std::abs(position.y - m_cameraFocus.y) > viewY) {
+                continue;
+            }
+            DrawMesh(m_art.fencePost, Translate(glm::vec3(position.x, position.y, -7.0f)) *
+                                          Scale(glm::vec3(62.0f, 72.0f, 1.0f)),
+                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+        }
+    }
+}
+
+void SurvivorsLayer::DrawShadowZone()
+{
+    // 场地外一律压暗；围栏内侧再铺一条渐变带（内淡出），避免一条生硬的黑边。
+    // z 取在墓碑（-7.3）之上、围栏（-7.15 / -7.0）之下——地面装饰被吞进阴影，栏杆本身保持清晰。
+    // 左右两块只补 |y| <= ARENA_HALF 的范围，避免与上下两块重叠叠出更黑的一条
+    const float left = m_cameraFocus.x - m_halfWidth - 60.0f;
+    const float right = m_cameraFocus.x + m_halfWidth + 60.0f;
+    const float bottom = m_cameraFocus.y - m_halfHeight - 60.0f;
+    const float top = m_cameraFocus.y + m_halfHeight + 60.0f;
+    const glm::vec4 shadowColor(0.008f, 0.006f, 0.02f, 0.62f);
+
+    const auto strip = [&](float x0, float y0, float x1, float y1) {
+        if (x1 <= x0 || y1 <= y0) {
+            return;
+        }
+        const glm::vec2 center((x0 + x1) * 0.5f, (y0 + y1) * 0.5f);
+        DrawMesh(m_art.quad, Translate(glm::vec3(center.x, center.y, -7.2f)) *
+                             Scale(glm::vec3(x1 - x0, y1 - y0, 1.0f)),
+                 shadowColor);
+    };
+    strip(left, ARENA_HALF, right, top);                  // 上
+    strip(left, bottom, right, -ARENA_HALF);              // 下
+    strip(left, -ARENA_HALF, -ARENA_HALF, ARENA_HALF);    // 左
+    strip(ARENA_HALF, -ARENA_HALF, right, ARENA_HALF);    // 右
+
+    // 围栏内侧再铺一条渐变带，让阴影从栏杆往场地里淡出（避免一条生硬的黑边）。
+    // vignette 网格是「上满下透」，旋转后让满端贴住围栏线、透明端朝场地内
+    constexpr float FADE = 180.0f;
+    const float spanX = m_halfWidth * 2.0f + 120.0f;
+    const float spanY = m_halfHeight * 2.0f + 120.0f;
+    const auto fade = [&](const glm::vec2& center, float scaleX, float scaleY, float rotation) {
+        DrawMesh(m_art.vignette, Translate(glm::vec3(center.x, center.y, -7.19f)) *
+                                 RotateZ(rotation) * Scale(glm::vec3(scaleX, scaleY, 1.0f)),
+                 shadowColor);
+    };
+    fade({ m_cameraFocus.x, ARENA_HALF - FADE * 0.5f }, spanX, FADE, 0.0f);          // 上沿往内淡
+    fade({ m_cameraFocus.x, -ARENA_HALF + FADE * 0.5f }, spanX, FADE, PI);           // 下沿往内淡
+    fade({ -ARENA_HALF + FADE * 0.5f, m_cameraFocus.y }, spanY, FADE, PI * 0.5f);    // 左沿往内淡
+    fade({ ARENA_HALF - FADE * 0.5f, m_cameraFocus.y }, spanY, FADE, -PI * 0.5f);    // 右沿往内淡
 }
 
 void SurvivorsLayer::DrawCoins()
@@ -176,6 +253,10 @@ void SurvivorsLayer::DrawEnemies()
         if (enemy.hitFlash > 0.0f) {
             const float flash = enemy.hitFlash / 0.18f;
             tint = glm::vec4(1.0f + flash * 1.4f, 1.0f + flash * 0.6f, 1.0f + flash * 0.6f, 1.0f);
+        }
+        if (InShadow(enemy.position)) {
+            // 阴影里的敌人整体压暗：一眼看出「这家伙现在打不到」
+            tint *= glm::vec4(0.42f, 0.40f, 0.54f, 1.0f);
         }
 
         if (enemy.type == EnemyType::Boss) {
@@ -324,8 +405,11 @@ void SurvivorsLayer::DrawEffectsOver()
                  glm::vec4(effect.color.x, effect.color.y, effect.color.z, alpha), 1.0f);
         } else if (effect.kind == FxKind::Bolt) {
             const float alpha = (1.0f - t) * effect.color.w;
-            DrawMesh(m_art.bolt, Translate(glm::vec3(effect.position.x, effect.position.y + 40.0f, 1.48f)) *
-                                  Scale(glm::vec3(effect.radius * 0.55f, effect.radius * 2.0f, 1.0f)),
+            // 闪电网格的 y 范围是 [-0.5, 0.5]：把**底边**而不是中心对准落点，
+            // 这样范围伤害的判定点正好落在闪电最下方中间（底部的落点光斑也在同一处）
+            const float height = effect.radius * 2.0f;
+            DrawMesh(m_art.bolt, Translate(glm::vec3(effect.position.x, effect.position.y + height * 0.5f, 1.48f)) *
+                                  Scale(glm::vec3(effect.radius * 0.55f, height, 1.0f)),
                  glm::vec4(1.0f, 1.0f, 1.0f, alpha));
             DrawMesh(m_art.disc, Translate(glm::vec3(effect.position.x, effect.position.y, 1.45f)) *
                                  Scale(glm::vec3(effect.radius * 0.55f, effect.radius * 0.55f, 1.0f)),

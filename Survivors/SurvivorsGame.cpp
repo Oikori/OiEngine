@@ -219,6 +219,7 @@ void SurvivorsLayer::ResetRun()
     m_stageBannerBoss = false;
     m_showHelp = false;
     m_showOptions = false;
+    m_pauseReturnState = State::Playing;   // 新一局的暂停返回点从战斗开始
 
     // 新一局：音效冷却清零，BGM 回到主曲（从 Boss 曲切回来时也走这里）
     m_sfxThrottle.fill(0.0f);
@@ -245,6 +246,8 @@ void SurvivorsLayer::ResetRun()
     m_exp = 0;
     m_expNext = ExpNeeded(1);
     m_pendingLevelUps = 0;
+    m_pendingWeaponPicks = 0;
+    m_shopPending = false;      // 面板队列也必须清：从升级卡 / 商店暂停后回标题，否则新一局一进场就弹旧面板
     m_levelUpLockout = 0.0f;
     m_weaponLevel.fill(0);      // 武器在 BeginRun 里按开局选择置 1 级
     m_options.clear();
@@ -390,6 +393,15 @@ void SurvivorsLayer::UpdateGame(float deltaTime)
     UpdateWeapons(deltaTime);
     UpdateProjectiles(deltaTime);
     UpdateCoins(deltaTime);
+
+    // 计时事件：每 TICK_EVENT_SECONDS 秒发一次（沙漏回血 / 节拍器落点一击都挂在这里）。
+    // 放在伤害结算之前发出，让它和武器一样参与本帧的敌人更新
+    m_eventTickTimer += deltaTime;
+    while (m_eventTickTimer >= TICK_EVENT_SECONDS) {
+        m_eventTickTimer -= TICK_EVENT_SECONDS;
+        RaiseEvent(EventId::Tick, m_playerPosition);
+    }
+
     UpdateContactDamage(deltaTime);
     UpdateParticles(deltaTime);
     UpdateEffects(deltaTime);
@@ -398,19 +410,13 @@ void SurvivorsLayer::UpdateGame(float deltaTime)
     std::erase_if(m_projectiles, [](const Projectile& projectile) { return !projectile.alive; });
     std::erase_if(m_coinDrops, [](const Coin& coin) { return !coin.alive; });
 
-    // 关卡计时：撑过本关时长就过关；第 10 关撑满即通关
+    // 关卡计时：撑过本关时长就过关；第 10 关撑满即通关。
+    // 最终关还有一条更快的路径：击杀血月使徒立即通关（KillEnemy 里调 TriggerVictory），
+    // 计时只是保底——两条路径共用同一个结算函数
     m_stageTime += deltaTime;
     if (m_stageTime >= m_stageDuration && m_state == State::Playing) {
         if (m_stage >= STAGE_COUNT) {
-            m_state = State::Victory;
-            m_levelFlash = 1.0f;
-            m_shake = 12.0f;
-            if (m_bgm) {
-                m_bgm->Stop();
-                m_bgm.reset();
-            }
-            PlaySfx(SfxId::Victory);
-            OI_INFO("Survivors: 10 关全清，玩家撑到了黎明（总耗时 {} 秒）", static_cast<int>(m_time));
+            TriggerVictory();
             return;
         }
         AdvanceStage();
@@ -431,6 +437,36 @@ void SurvivorsLayer::UpdateGame(float deltaTime)
     } else if (m_shopPending) {
         OpenShop();
     }
+}
+
+void SurvivorsLayer::TriggerVictory()
+{
+    if (m_state != State::Playing) {
+        return;   // 一次通关只结算一次：击杀使徒后同一帧里的连锁击杀还会继续走 KillEnemy
+    }
+    m_state = State::Victory;
+    m_levelFlash = 1.0f;
+    m_shake = 12.0f;
+
+    // 地上没捡的金币直接进钱包：击杀使徒是**瞬间**通关，玩家来不及跑过去捡，
+    // 与过关清场（AdvanceStage）同一口径，免得 Boss 的钱袋和本关掉落白散一地
+    for (const Coin& coin : m_coinDrops) {
+        if (!coin.alive) {
+            continue;
+        }
+        const int gained = CoinGain(coin.value);
+        m_coins += gained;
+        m_coinsEarned += gained;
+    }
+    m_coinDrops.clear();
+
+    if (m_bgm) {
+        m_bgm->Stop();
+        m_bgm.reset();
+    }
+    PlaySfx(SfxId::Victory);
+    OI_INFO("Survivors: 十关全破，黎明降临（总耗时 {} 秒，击杀 {}，金币 {}）",
+            static_cast<int>(m_time), m_kills, m_coinsEarned);
 }
 
 void SurvivorsLayer::AdvanceStage()
@@ -507,6 +543,13 @@ void SurvivorsLayer::UpdatePlayer(float deltaTime)
     const float blend = 1.0f - std::exp(-deltaTime * 15.0f);
     m_playerVelocity = glm::mix(m_playerVelocity, input * speed, blend);
     m_playerPosition += m_playerVelocity * deltaTime;
+
+    // 场地围栏：把玩家钳在方形场地内（留半个身位，别让角色压到栏杆上）。
+    // 只在移动之后钳制：速度不清零，贴着栏杆走时手感不会被吃
+    const float arenaLimit = ARENA_HALF - PLAYER_RADIUS;
+    m_playerPosition.x = std::clamp(m_playerPosition.x, -arenaLimit, arenaLimit);
+    m_playerPosition.y = std::clamp(m_playerPosition.y, -arenaLimit, arenaLimit);
+
     m_walkPhase += deltaTime * (2.0f + Length(m_playerVelocity) * 0.022f);
 
     m_hurtCooldown = std::max(0.0f, m_hurtCooldown - deltaTime);
@@ -568,35 +611,45 @@ void SurvivorsLayer::PollPauseKeys()
         return;
     }
 
-    // ESC：按状态分派（标题 / 升级 / 选武器 / 结算不响应，保持原行为）
+    // ESC：按状态分派（标题 / 选武器 / 阵亡 / 通关不响应）
     switch (m_state) {
         case State::Setup:
             ReturnToTitle();
             break;
-        case State::Shop:
-            ContinueRun();
-            break;
         case State::Playing:
-            m_state = State::Paused;
+        case State::LevelUp:
+        case State::Shop:
+            OpenPauseMenu();   // 升级卡 / 商店里也能暂停；继续时回到原面板
             break;
         case State::Paused:
-            m_state = State::Playing;
+            m_state = m_pauseReturnState;
             break;
         default:
             break;
     }
 }
 
-// R 键：同一个键在不同界面是同一种「重抽」语义——
+void SurvivorsLayer::OpenPauseMenu()
+{
+    if (m_state == State::Paused) {
+        return;
+    }
+    // 记住暂停前在哪个界面：从商店 / 升级卡里暂停，继续时得回到那一屏而不是直接开打
+    m_pauseReturnState = m_state;
+    m_state = State::Paused;
+}
+
+// R 键：只保留「重抽」语义——
 //   升级面板 / 商店：整组刷新（和面板上的刷新按钮完全同一条路径，金币不足时按钮与按键都不生效）
-//   游戏内（Playing / Paused / GameOver / Victory）：重开一局
-// 同样用物理轮询 + 边沿检测：面板按钮被点过之后 ImGui 会吃掉键盘事件，R 只能从轮询进来
+//   其它状态（游戏内 / 暂停 / 阵亡 / 通关 / 选角）：**不响应**。重开一局只能点结算面板上的
+//   「再来一局」按钮，避免战斗中误触把打了一半的一局直接清掉
+// 用物理轮询 + 边沿检测：面板按钮被点过之后 ImGui 会吃掉键盘事件，R 只能从轮询进来
 void SurvivorsLayer::PollHotkeys()
 {
-    const bool restartDown = Input::IsKeyPressed(Key::R);
-    const bool restartPressed = restartDown && !m_restartDown;
-    m_restartDown = restartDown;
-    if (!restartPressed) {
+    const bool rerollDown = Input::IsKeyPressed(Key::R);
+    const bool rerollPressed = rerollDown && !m_rerollDown;
+    m_rerollDown = rerollDown;
+    if (!rerollPressed) {
         return;
     }
 
@@ -611,14 +664,8 @@ void SurvivorsLayer::PollHotkeys()
         case State::Shop:
             RerollShop();
             break;
-        case State::Playing:
-        case State::Paused:
-        case State::GameOver:
-        case State::Victory:
-            ResetRun();   // 重开一局 = 回到开局选择（角色 / 武器可以换）
-            break;
         default:
-            break;        // 标题 / 选角 / 每 5 级选武器：R 不做事
+            break;        // 其余状态 R 不做事：重开一局改走结算面板的按钮
     }
 }
 
@@ -677,15 +724,11 @@ void SurvivorsLayer::OnEvent(Event& event)
         return;
     }
     if (m_state == State::Shop) {
-        // 商店里只认「离开」：Enter / 空格（ESC / R 在轮询里）
-        if (key == Key::Enter || key == Key::Space) {
-            ContinueRun();
-            event.handled = true;
-        }
+        // 商店离开**只留鼠标按钮**：Enter / 空格不再算离开（ESC 改去开暂停面板，见 PollPauseKeys）
         return;
     }
 
-    // 游戏内的 R（重开一局）在 PollHotkeys 里处理：和面板里的「整组刷新」共用同一个键，
-    // 而且 ImGui 抢焦点时事件通道收不到，只能靠物理轮询
+    // 其余状态（Playing / Paused / 阵亡 / 通关）在这里没有键盘事件：
+    // ESC 与 R 都走 PollPauseKeys / PollHotkeys 的物理轮询，事件通道不重复处理
 }
 

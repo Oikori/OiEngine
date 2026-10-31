@@ -349,7 +349,9 @@ void SurvivorsLayer::RenderHelp()
 
         section("关卡与目标");
         body("共 10 关：第 1 关存活 30 秒，之后每关 +5 秒（第 10 关 75 秒）；撑完第 10 关即通关，生命归零则本局结束。");
-        body("只有第 5 关与第 10 关会出现「血月使徒」。过关会清空场上敌人与弹丸，地上的金币自动收进钱包，然后开商店。");
+        body("只有第 5 关与第 10 关会出现「血月使徒」。第 10 关的使徒是最终战：击杀它当场通关，不必再撑完剩余时间。");
+        body("场地四周有围栏：角色只能在围栏内移动，敌人可以越过栏杆；围栏外的阴影里敌人无敌，要等它走进场地才打得到。");
+        body("过关会清空场上敌人与弹丸，地上的金币自动收进钱包，然后开商店。");
 
         section("开局");
         body("先选一个角色（角色类道具，品质固定史诗，给初始属性）和一把武器（1 级起手）。");
@@ -358,37 +360,39 @@ void SurvivorsLayer::RenderHelp()
         section("操作");
         body("WASD / 方向键移动   ·   武器自动索敌开火，无需攻击键");
         body("升级时点击卡片选择（或按 1 / 2 / 3）；面板下方的「刷新全部三张」花金币整组重抽（快捷键 R）");
-        body("选武器点卡片（或按 1 / 2 / 3 / 4）；商店点「购买」，R 整组刷新货位，ESC / Enter 离开商店");
-        body("ESC 暂停 / 继续   ·   R 重开一局（回到选角界面；面板里 R 是整组刷新）   ·   F4 调试面板");
+        body("选武器点卡片（或按 1 / 2 / 3 / 4）；商店点「购买」，R 整组刷新货位，点「离开商店」回战斗（没有键盘离开键）");
+        body("ESC 暂停 / 继续：战斗、升级选卡、商店三个阶段都能按，继续时回到暂停前的界面");
+        body("F4 打开调试面板（FPS / 实体数 / 伤害统计 / 快速验证按钮）");
 
         section("成长：经验、升级卡、武器");
         body("击杀敌人当场获得经验，并掉落金币（走近自动吸取，22 秒后散掉）。金币用于刷新升级卡、刷新商店、买道具。");
-        body("每次升级给三张属性卡三选一；刷新价 = 4 + 3 × 本次已刷新次数。武器与「立即回复」已不在升级卡池里。");
-        body("属性卡九种：力量 / 急速 / 疾行 / 体魄 / 磁石 / 幸运 / 回春 / 铁壁 / 破甲，没有层数上限。");
+        body("每次升级给三张属性卡三选一（选完回到战斗有 1 秒无敌）；刷新价 = 4 + 3 × 本次已刷新次数。武器与「立即回复」已不在升级卡池里。");
+        body("属性卡九种：力量 / 急速 / 疾行 / 体魄 / 暴击 / 爆伤 / 回春 / 铁壁 / 破甲，没有层数上限。");
         body("武器四把：月刃（直线穿透）/ 圣光环（近身脉冲）/ 回旋镰（往返切割）/ 雷暴（范围落雷），各自最高 5 级。");
 
         section("道具");
         body("每关通关后开商店，一次摆 4 件道具（角色不卖），可以整组刷新（6 + 4 × 本次已刷新次数）。");
-        body("种类决定能不能重复拿：普通类（无上限，可叠）· 限制类（有持有上限 2~3）· 独特类（全局只能持有一件）· 角色（开局选）。");
+        body("种类决定能不能重复拿：普通类（无上限，可叠）· 限制类（每件有持有上限 1~3，原「独特」道具也在这里）· 角色（开局选）。");
         body("稀有度是每件道具固定的档位（普通 / 高级 / 稀有 / 史诗）：铁片永远是高级、血袋永远是普通，");
         body("它只决定价格与刷出来的概率，效果是道具自身的固定数值。");
-        body("价格 12 / 22 / 40 / 66 起，并随关卡上浮（+10%/关，与金币收入同步）；越稀有的越难出现在货架上。");
+        body("价格 12 / 22 / 40 / 66 起：前 5 关每关 +20%，之后涨价加速；越稀有的越难出现在货架上。");
 
         section("事件与事件道具");
-        body("游戏里会发生四类事件：击杀敌人、拾取金币、受到伤害、通过一关。部分道具挂在事件上：");
-        body("噬魂匕（每次击杀回血）· 哀嚎钟（每 12 杀向周围发出音波）· 铸币者之锤（每 10 枚金币额外铸币）·");
-        body("拾荒护符（每 10 枚金币回血）· 贪欲之链（每次拾币向周围震出金币碎片）· 受难者圣痕（每 5 次受伤暗焰反击）·");
-        body("黎明誓约（每过一关永久 +伤害 / +生命上限，并回血）。阈值型道具的触发进度、四类事件的累计次数都在暂停菜单的「事件」一栏。");
+        body("游戏里会发生八类事件：击杀敌人、拾取金币、受到伤害、通过一关、暴击命中、计时（每 8 秒）、花费金币、升级。");
+        body("击杀 · 哀嚎钟（每 12 杀音波）/ 血契（每次击杀回血）；拾金 · 铸币者之锤 / 拾荒护符 / 贪欲之链；");
+        body("受伤 · 受难者圣痕；过关 · 黎明誓约；暴击 · 淬血匕首（每次暴击回血）/ 破晓之刃（每 8 次暴击爆发）；");
+        body("计时 · 沙漏（回血）/ 节拍器（对最近敌人打一击）；消费 · 贪婪契约（回血）/ 商人之瞳（永久 +伤害）；");
+        body("升级 · 成长之书（回血）/ 星辉残页（+固定穿甲）。阈值型道具的进度与八类事件的累计次数都在暂停菜单的「事件」一栏。");
 
         section("属性与品质");
         body("升级卡（属性卡）有品质：普通 / 高级 / 稀有 / 史诗，加成倍率 1.0 / 1.6 / 2.4 / 3.5，等级越高越容易出高品质。");
         body("属性卡没有层数上限，可以一直叠。");
         body("防御：固定值，减伤率 = 防御 / (防御 + 100)。100 点 = 50%，越往上堆收益越钝，但永远不会免疫。");
         body("穿甲：固定穿甲直接扣对方这么多点防御（「破甲」不再附带百分比穿甲）；防御被扣到 0 为止，溢出部分不额外生效。");
-        body("上限：移动速度最多 2 倍裸值，暴击率最多 100%。其余属性只会线性叠加。");
+        body("上限：只有暴击率封顶 100%；移动速度不设上限，其余属性只会线性叠加。");
 
         section("敌人");
-        body("蝙蝠（无防御）· 食尸鬼（防御 5）· 怨灵（12）· 石魔（25）· 血月使徒（40）。");
+        body("蝙蝠（无防御）· 食尸鬼（防御 10）· 怨灵（24）· 石魔（50）· 血月使徒（100）。");
         body("怪物数值随关卡递增：血量 +30%/关、伤害 +12%/关、防御 +8%/关、经验与金币 +10%/关。");
 
         ImGui::Dummy(ImVec2(0.0f, 14.0f));
@@ -542,12 +546,14 @@ void SurvivorsLayer::RenderHud()
                      ImGuiWindowFlags_NoInputs)) {
         const float stageLeft = std::max(0.0f, m_stageDuration - m_stageTime);
         const bool bossStage = HasBossStage(m_stage);
+        const bool finalStage = m_stage >= STAGE_COUNT;
         ImGui::SetWindowFontScale(1.9f);
         ImGui::TextColored(colText, "%s", FormatTime(stageLeft).c_str());
         ImGui::SetWindowFontScale(1.0f);
         ImGui::TextColored(bossStage ? ImVec4(1.0f, 0.48f, 0.50f, 0.95f) : colDim,
                            "第 %d / %d 关%s   ·   击杀 %d", m_stage, STAGE_COUNT,
-                           bossStage ? " · 血月使徒" : "", m_kills);
+                           bossStage ? (finalStage ? " · 最终关 · 击杀使徒即通关" : " · 血月使徒") : "",
+                           m_kills);
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
                               bossStage ? ImVec4(0.86f, 0.20f, 0.24f, 1.0f) : ImVec4(0.86f, 0.70f, 0.36f, 1.0f));
         ImGui::ProgressBar(m_stageDuration > 0.0f ? m_stageTime / m_stageDuration : 0.0f,
@@ -621,8 +627,13 @@ void SurvivorsLayer::RenderHud()
                                                  : ImVec4(0.98f, 0.84f, 0.52f, fade),
                                "第 %d 关", m_stage);
             ImGui::SetWindowFontScale(1.0f);
+            // 最终关的胜利条件换成「击杀使徒」，横幅得说清楚，否则玩家会以为还是要硬撑计时
+            const bool finalStage = m_stage >= STAGE_COUNT;
             ImGui::TextColored(ImVec4(0.72f, 0.76f, 0.90f, fade * 0.9f),
-                               m_stageBannerBoss ? "血月使徒降临 · 撑过 %d 秒" : "存活 %d 秒",
+                               m_stageBannerBoss
+                                   ? (finalStage ? "血月使徒降临 · 击杀使徒即通关"
+                                                 : "血月使徒降临 · 撑过 %d 秒")
+                                   : "存活 %d 秒",
                                static_cast<int>(m_stageDuration));
         }
         ImGui::End();
@@ -644,7 +655,7 @@ void SurvivorsLayer::RenderHud()
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.30f, 0.46f, 0.95f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.32f, 0.40f, 0.58f, 1.0f));
             if (ImGui::Button("暂停  (ESC)", ImVec2(124.0f, 34.0f))) {
-                m_state = State::Paused;
+                OpenPauseMenu();
             }
             ImGui::PopStyleColor(3);
         }
@@ -682,8 +693,7 @@ void SurvivorsLayer::RenderHud()
                         m_coins, m_coinsEarned, m_rerollCount, RerollCost());
             ImGui::Text("待处理：升级 %d · 选武器 %d · 商店 %s", m_pendingLevelUps, m_pendingWeaponPicks,
                         m_shopPending ? "待开" : "无");
-            ImGui::Text("角色 %s   独特道具 %d 件   道具 %zu 种",
-                        ItemName(m_character), UniqueHeld(), m_itemCount.size());
+            ImGui::Text("角色 %s   道具 %zu 种", ItemName(m_character), m_itemCount.size());
             ImGui::Text("事件：击杀 %d · 拾币 %d 枚（%d 次）· 受伤 %d · 过关 %d",
                         m_eventStats.kills, m_eventStats.coinValue, m_eventStats.coinPickups,
                         m_eventStats.hurts, m_eventStats.stageClears);
@@ -718,8 +728,10 @@ void SurvivorsLayer::RenderHud()
             // 事件道具的快速验证：直接把事件类道具塞进背包（无视商店与持有上限）
             if (ImGui::Button("送事件道具")) {
                 const ItemId eventItems[] = {
-                    ItemId::SoulDagger, ItemId::WailingBell, ItemId::CoinHammer, ItemId::ScavengerCharm,
+                    ItemId::WailingBell, ItemId::CoinHammer, ItemId::ScavengerCharm,
                     ItemId::GreedChain, ItemId::MartyrStigma, ItemId::DawnPact,
+                    ItemId::DawnBlade, ItemId::BloodDagger, ItemId::Hourglass, ItemId::Metronome,
+                    ItemId::GreedPact, ItemId::MerchantEye, ItemId::TomeOfGrowth, ItemId::StarlightPage,
                 };
                 for (const ItemId id : eventItems) {
                     AcquireItem(id);
@@ -1004,7 +1016,7 @@ void SurvivorsLayer::RenderShop()
         ImGui::TextColored(ImVec4(0.86f, 0.88f, 0.95f, 1.0f),
                            "第 %d 关已通过   ·   金币 %d   ·   角色只能在开局选", m_stage - 1, m_coins);
         ImGui::TextColored(ImVec4(0.62f, 0.66f, 0.80f, 0.95f),
-                           "普通类可叠 · 限制类有持有上限 · 独特类全局一件 · 整组刷新 %d 币", rerollCost);
+                           "普通类可叠 · 限制类有持有上限 · 整组刷新 %d 币", rerollCost);
     }
     ImGui::End();
 
@@ -1012,7 +1024,6 @@ void SurvivorsLayer::RenderShop()
     int buySlot = -1;
     for (int slot = 0; slot < count; ++slot) {
         const ShopOffer& offer = m_shopOffers[static_cast<size_t>(slot)];
-        const glm::vec4 itemColor = ItemColor(offer.id);
         const ItemCategory category = ItemCategoryOf(offer.id);
         const glm::vec4 categoryColor = ITEM_CATEGORY_COLORS[static_cast<int>(category)];
         const Rarity rarity = ItemRarity(offer.id);   // 稀有度是道具的固定属性
@@ -1034,9 +1045,10 @@ void SurvivorsLayer::RenderShop()
                                                             : ImVec4(0.055f, 0.055f, 0.11f, 0.97f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(rarityColor.x, rarityColor.y, rarityColor.z,
                                                       offer.sold ? 0.28f : 0.80f));
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(itemColor.x * 0.36f, itemColor.y * 0.36f, itemColor.z * 0.36f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(itemColor.x * 0.56f, itemColor.y * 0.56f, itemColor.z * 0.56f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(itemColor.x * 0.76f, itemColor.y * 0.76f, itemColor.z * 0.76f, 1.0f));
+        // 购买按钮跟卡片同色（按稀有度取色，只做明度变体）：稀有档的卡片是紫色，按钮也就是紫色
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(rarityColor.x * 0.36f, rarityColor.y * 0.36f, rarityColor.z * 0.36f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(rarityColor.x * 0.56f, rarityColor.y * 0.56f, rarityColor.z * 0.56f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(rarityColor.x * 0.76f, rarityColor.y * 0.76f, rarityColor.z * 0.76f, 1.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 14.0f));
@@ -1074,9 +1086,7 @@ void SurvivorsLayer::RenderShop()
         if (held > 0) {
             ImGui::TextColored(ImVec4(0.56f, 0.62f, 0.76f, 1.0f), "已持有 %d 件", held);
         } else if (!acquirable && !offer.sold) {
-            const bool uniqueBlocked = ItemCategoryOf(offer.id) == ItemCategory::Unique;
-            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1.0f), "%s",
-                               uniqueBlocked ? "只能持有一件独特道具" : "已达持有上限");
+            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1.0f), "已达持有上限");
         } else {
             ImGui::TextColored(ImVec4(0.56f, 0.62f, 0.76f, 1.0f), " ");
         }
@@ -1134,7 +1144,8 @@ void SurvivorsLayer::RenderShop()
         ImGui::EndDisabled();
         ImGui::PopStyleColor(3);
         ImGui::SameLine(0.0f, 12.0f);
-        const bool leaveClicked = ImGui::Button("离开商店  (Enter)", ImVec2(220.0f, 42.0f));
+        // 离开商店只留这一个按钮：Enter / 空格不再是快捷键，ESC 在商店里改成打开暂停面板
+        const bool leaveClicked = ImGui::Button("离开商店", ImVec2(220.0f, 42.0f));
         ImGui::TextColored(ImVec4(0.62f, 0.64f, 0.78f, 0.9f), "本次已刷 %d 次 · 钱包 %d 币 · 快捷键 R",
                            m_shopRerolls, m_coins);
 
@@ -1144,7 +1155,7 @@ void SurvivorsLayer::RenderShop()
             ImGui::PopStyleVar();
             return;
         }
-        if (leaveClicked || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        if (leaveClicked) {
             ImGui::End();
             ImGui::PopStyleVar();
             ContinueRun();
@@ -1300,7 +1311,7 @@ void SurvivorsLayer::RenderPause()
             }
         }
 
-        // 事件：四类事件的累计次数 + 已持事件道具的触发进度（阈值型道具才显示 N / 阈值）
+        // 事件：八类事件的累计次数 + 已持事件道具的触发进度（阈值型道具才显示 N / 阈值）
         {
             ImGui::TextColored(statLabel, "事件");
             for (const std::string& line : EventSummary()) {
@@ -1312,10 +1323,10 @@ void SurvivorsLayer::RenderPause()
         // 按钮宽度取内容区可用宽度，保证左右留白一致（写死宽度会因窗口更宽而右偏）
         const float buttonWidth = ImGui::GetContentRegionAvail().x;
         if (ImGui::Button("继续游戏  (ESC)", ImVec2(buttonWidth, 38.0f))) {
-            m_state = State::Playing;
+            m_state = m_pauseReturnState;   // 从商店 / 升级卡暂停的，继续时回到那一屏
         }
         if (ImGui::Button("回到标题", ImVec2(buttonWidth, 38.0f))) {
-            ReturnToTitle();   // 清局并回标题（不再「就地重开」：要换角色 / 武器就回标题重新开始，或者按 R）
+            ReturnToTitle();   // 清局并回标题（不再「就地重开」：要换角色 / 武器就回标题重新开始）
         }
         if (ImGui::Button("游戏说明 / 操作", ImVec2(buttonWidth, 38.0f))) {
             m_showOptions = false;
@@ -1364,7 +1375,7 @@ void SurvivorsLayer::RenderGameOver()
         ImGui::TextColored(ImVec4(0.80f, 0.80f, 0.90f, 1.0f), "造成伤害   %.0f", m_damageDealt);
         ImGui::Dummy(ImVec2(0.0f, 10.0f));
         const float buttonWidth = ImGui::GetContentRegionAvail().x;
-        if (ImGui::Button("再来一局  (R)", ImVec2(buttonWidth, 42.0f))) {
+        if (ImGui::Button("再来一局", ImVec2(buttonWidth, 42.0f))) {
             ResetRun();
         }
         if (ImGui::Button("回到标题", ImVec2(buttonWidth, 38.0f))) {
@@ -1408,7 +1419,7 @@ void SurvivorsLayer::RenderVictory()
         ImGui::TextColored(ImVec4(0.82f, 0.84f, 0.94f, 1.0f), "造成伤害   %.0f", m_damageDealt);
         ImGui::Dummy(ImVec2(0.0f, 10.0f));
         const float buttonWidth = ImGui::GetContentRegionAvail().x;
-        if (ImGui::Button("再来一局  (R)", ImVec2(buttonWidth, 42.0f))) {
+        if (ImGui::Button("再来一局", ImVec2(buttonWidth, 42.0f))) {
             ResetRun();
         }
         if (ImGui::Button("回到标题", ImVec2(buttonWidth, 38.0f))) {

@@ -16,7 +16,8 @@ using namespace OiEngine::Survivors;
 
 void SurvivorsLayer::DamageEnemy(Enemy& enemy, float damage, bool crit)
 {
-    if (!enemy.alive) {
+    // 围栏外的阴影里敌人无敌：不掉血、不弹伤害数字（连受击音效也不放）
+    if (!enemy.alive || InShadow(enemy.position)) {
         return;
     }
     // 玩家进攻：自己的固定穿甲扣目标防御（怪物只有防御，没有穿甲）
@@ -27,6 +28,10 @@ void SurvivorsLayer::DamageEnemy(Enemy& enemy, float damage, bool crit)
     // 命中音随机变调，避免同频堆在一起像报错声
     PlaySfx(SfxId::Hit, 1.0f, Rand(0.92f, 1.10f));
     SpawnDamageNumber(enemy.position + glm::vec2(0.0f, enemy.radius * 0.75f), dealt, crit);
+    if (crit) {
+        // 暴击命中事件（放在死亡判定之前：暴击打死的那一下也算一次暴击）
+        RaiseEvent(EventId::CritHit, enemy.position);
+    }
     if (enemy.hp <= 0.0f) {
         KillEnemy(enemy);
     }
@@ -74,6 +79,11 @@ void SurvivorsLayer::KillEnemy(Enemy& enemy)
         m_playerHp = std::min(m_playerMaxHp, m_playerHp + 30.0f);
         SpawnRing(enemy.position, 420.0f, 1.2f, C_GOLD);
         OI_INFO("Survivors: 血月使徒被击败");
+        // 最终关：使徒就是最后一战，击杀当场通关，不必再撑完剩下的时间。
+        // 第 5 关的使徒只是强敌（击杀回血 + 掉钱），不影响关卡计时
+        if (m_stage >= STAGE_COUNT) {
+            TriggerVictory();
+        }
         return;
     }
 
