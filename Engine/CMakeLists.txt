@@ -12,6 +12,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC
     OI_SHARED_LIBRARY
+    $<$<CONFIG:Debug>:OI_DEBUG>
 )
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     OI_BUILDING_LIBRARY

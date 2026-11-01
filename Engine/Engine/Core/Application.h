@@ -18,7 +18,7 @@ namespace OiEngine {
 
         const char* operator[](int index) const
         {
-            OI_ASSERT(index < Count);
+            OI_ASSERT(index < count);
             return args[index];
         }
     };
