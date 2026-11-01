@@ -86,11 +86,12 @@ namespace OiEngine::Survivors {
         enum class ItemId {
             // 普通类：无持有上限
             BloodBag = 0, Whetstone, IronPlate, HunterMark, StarBoots, SoulLamp,
-            IronNail, HunterCloak, MistLantern,
-            CrimsonPendant, MithrilRing, ShadowRobe, LumenCrown,   // 稀有 / 史诗档（可叠）
+            IronNail, HunterCloak,
+            CrimsonPendant, MithrilRing, LumenCrown,   // 稀有 / 史诗档（可叠）
             // 限制类：有持有上限
             CoinHammer,                                  // 事件 · 拾取金币
-            BloodSigil, GaleFeather, Grail, DragonScale,
+            BloodSigil, GaleFeather, DragonScale,
+            MistLantern,                                 // 上限 3（原先在普通类，可无限叠）
             WailingBell, ScavengerCharm,                 // 事件 · 击杀 / 拾取金币
             MartyrStigma,                                // 事件 · 受伤
             ColdBracer, BloodRose, BrokenBlade, CursedRing, StarShard,
@@ -115,9 +116,16 @@ namespace OiEngine::Survivors {
 
         struct Enemy {
             EnemyType type = EnemyType::Bat;
+            // 血月使徒的冲刺：靠近到一定距离后锁定方向 → 蓄力 → 沿锁定的直线冲一段。
+            // 三个阶段共用 dashTimer（当前阶段的剩余秒数），dashCooldown 是下一次冲刺前的等待
+            enum class DashPhase { None = 0, Charge, Dash };
             glm::vec2 position{ 0.0f, 0.0f };
             glm::vec2 velocity{ 0.0f, 0.0f };
             glm::vec2 impulse{ 0.0f, 0.0f };
+            glm::vec2 dashDirection{ 0.0f, 1.0f };   // 蓄力开始时锁死，冲刺阶段不再追踪玩家
+            float dashTimer = 0.0f;
+            float dashCooldown = 0.0f;
+            DashPhase dashPhase = DashPhase::None;
             float hp = 1.0f;
             float maxHp = 1.0f;
             float radius = 16.0f;
@@ -209,19 +217,16 @@ namespace OiEngine::Survivors {
             bool sold = false;
         };
 
-        // 道具目录条目（数据在 SurvivorsItems.cpp）：名字 / 种类 / 固定稀有度 / 持有上限（0 = 无上限）。
-        // 颜色不存这里：普通 / 限制道具按稀有度取色（RARITY_COLORS），角色取 CHARACTER_COLORS
+        // 道具目录条目（数据在 SurvivorsItems.cpp）：名字 / 种类 / 固定稀有度 / 持有上限（0 = 无上限）/ 加成分量。
+        // 颜色不存这里：普通 / 限制道具按稀有度取色（RARITY_COLORS），角色取 CHARACTER_COLORS。
+        // gain 的每一格含义**随道具不同**（例如「移速 / 防御」「伤害 / 攻速」），
+        // 各道具的注释写在 SurvivorsItems.cpp 的 ITEM_DEFS 里，结算与描述分别读 DescribeItem / ApplyItemEffect
         struct ItemDef {
             const char* name = "";
             ItemCategory category = ItemCategory::Normal;
             Rarity rarity = Rarity::Common;
             int cap = 0;
-        };
-
-        // 道具的单次加成（primary / secondary 的含义随道具不同，见 ItemGainFor）
-        struct ItemGain {
-            float primary = 0.0f;
-            float secondary = 0.0f;
+            float gain[5] = {};   // 主 / 次 / 三 / 四 / 五（没用到的分量是 0）
         };
 
         // 道具目录本体：唯一一份定义在 SurvivorsItems.cpp（键就是 ItemId，不再依赖枚举顺序）
@@ -289,6 +294,8 @@ namespace OiEngine::Survivors {
         void AdvanceStage();
         void TriggerVictory();   // 通关结算（计时撑满 / 第 10 关击杀血月使徒两条路径共用）
         void UpdateEnemies(float deltaTime);
+        // 血月使徒的冲刺技能：返回 true = 这一帧由技能接管了移动（蓄力 / 冲刺中）
+        bool UpdateBossDash(Enemy& boss, float distanceToPlayer, float deltaTime);
         void UpdateWeapons(float deltaTime);
         void UpdateProjectiles(float deltaTime);
         void UpdateCoins(float deltaTime);
@@ -353,13 +360,13 @@ namespace OiEngine::Survivors {
 
         // ---- 道具 ----
         // 道具的稀有度是**目录里写死的固定属性**（同一件道具永远是同一个稀有度），
-        // 稀有度只决定档位：展示色、商店价格、出货权重；效果就是 ItemGainFor 里的那组数
+        // 稀有度只决定档位：展示色、商店价格、出货权重；效果就是 ITEM_DEFS 里 gain 的那组数
+        static const ItemDef& ItemDefOf(ItemId id);   // 目录条目的唯一入口（名字 / 种类 / 稀有度 / 上限 / 加成）
         static const char* ItemName(ItemId id);
         static glm::vec4 ItemColor(ItemId id);
         static ItemCategory ItemCategoryOf(ItemId id);
         static Rarity ItemRarity(ItemId id);
         static int ItemCap(ItemId id);            // 0 = 无持有上限（普通类）
-        static ItemGain ItemGainFor(ItemId id);
         static void DescribeItem(ItemId id, std::string& title, std::string& description);
         void ResetItems();
         int ItemCount(ItemId id) const;

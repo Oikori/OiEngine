@@ -12,7 +12,7 @@
 //   GainExp()          → EventId::LevelUp（每升一级）
 // 道具对这些事件的响应全部集中在本文件的 RaiseEvent 里。于是：
 //   新增一种事件   = EventId 加一项 + 在发生处发一次 + 在 switch 里写响应；
-//   新增一件事件道具 = ItemId / ITEM_DEFS 登记 + ItemGainFor / ApplyItemEffect 把数值写进
+//   新增一件事件道具 = ItemId / ITEM_DEFS 登记（含 gain[] 数值） + ApplyItemEffect 把数值写进
 //                     BaseStats（见 SurvivorsItems.cpp）+ 在这里读它。
 //
 // 阈值类道具（每 N 次触发）共用一份「按事件归类」的进度计数器，且**只在持有关联道具时累积**：

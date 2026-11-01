@@ -254,6 +254,11 @@ void SurvivorsLayer::DrawEnemies()
             const float flash = enemy.hitFlash / 0.18f;
             tint = glm::vec4(1.0f + flash * 1.4f, 1.0f + flash * 0.6f, 1.0f + flash * 0.6f, 1.0f);
         }
+        if (enemy.type == EnemyType::Boss && enemy.dashPhase == Enemy::DashPhase::Charge) {
+            // 蓄力：越接近起冲整体越泛红，一眼看出「它要冲了」
+            const float charge = 1.0f - std::clamp(enemy.dashTimer / BOSS_DASH_CHARGE_TIME, 0.0f, 1.0f);
+            tint *= glm::vec4(1.0f + 0.70f * charge, 1.0f - 0.30f * charge, 1.0f - 0.34f * charge, 1.0f);
+        }
         if (InShadow(enemy.position)) {
             // 阴影里的敌人整体压暗：一眼看出「这家伙现在打不到」
             tint *= glm::vec4(0.42f, 0.40f, 0.54f, 1.0f);
@@ -266,6 +271,30 @@ void SurvivorsLayer::DrawEnemies()
             DrawMesh(m_art.disc, Translate(glm::vec3(enemy.position.x, enemy.position.y, -1.3f)) *
                                  Scale(glm::vec3(scale * 1.2f, scale * 1.2f, 1.0f)),
                      glm::vec4(0.70f, 0.10f, 0.14f, 0.18f), 1.0f);
+
+            // 冲刺技能的表现：蓄力时在地面画出锁定的那条轨迹（vignette 的满端朝冲刺方向、
+            // 透明端贴着使徒），冲刺时反过来在身后拖一条血色残影——玩家据此判断该往哪边让
+            if (enemy.dashPhase != Enemy::DashPhase::None) {
+                // 条带的满端是本地 +y，RotateZ(angle - π/2) 把它转到冲刺方向上
+                const glm::mat4 heading = RotateZ(std::atan2(enemy.dashDirection.y, enemy.dashDirection.x) - PI * 0.5f);
+                if (enemy.dashPhase == Enemy::DashPhase::Charge) {
+                    const float charge = 1.0f - std::clamp(enemy.dashTimer / BOSS_DASH_CHARGE_TIME, 0.0f, 1.0f);
+                    const glm::vec2 center = enemy.position + enemy.dashDirection * (BOSS_DASH_DISTANCE * 0.5f);
+                    DrawMesh(m_art.vignette, Translate(glm::vec3(center.x, center.y, -1.28f)) * heading *
+                                             Scale(glm::vec3(enemy.radius * 2.4f, BOSS_DASH_DISTANCE, 1.0f)),
+                             glm::vec4(0.92f, 0.14f, 0.20f, 0.08f + 0.20f * charge));
+                    const float grow = scale * (1.9f + 2.2f * charge);
+                    DrawMesh(m_art.ring, Translate(glm::vec3(enemy.position.x, enemy.position.y - 6.0f, -1.18f)) *
+                                             Scale(glm::vec3(grow, grow, 1.0f)),
+                             glm::vec4(1.0f, 0.34f, 0.30f, 0.18f + 0.42f * charge));
+                } else {
+                    constexpr float TRAIL = 240.0f;
+                    const glm::vec2 center = enemy.position - enemy.dashDirection * (TRAIL * 0.5f);
+                    DrawMesh(m_art.vignette, Translate(glm::vec3(center.x, center.y, -1.26f)) * heading *
+                                             Scale(glm::vec3(enemy.radius * 2.0f, TRAIL, 1.0f)),
+                             glm::vec4(1.0f, 0.24f, 0.26f, 0.42f));
+                }
+            }
         }
 
         DrawMesh(*mesh, Translate(glm::vec3(enemy.position.x, enemy.position.y + bob, 0.0f)) *

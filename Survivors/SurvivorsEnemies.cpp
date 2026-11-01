@@ -44,6 +44,12 @@ void SurvivorsLayer::UpdateEnemies(float deltaTime)
         const float distance = Length(toPlayer);
         glm::vec2 direction = distance > 0.001f ? toPlayer / distance : glm::vec2(0.0f, 1.0f);
 
+        // 血月使徒的冲刺：蓄力 / 冲刺阶段由技能接管移动，常规转向与加速整段跳过
+        if (enemy.type == EnemyType::Boss && UpdateBossDash(enemy, distance, deltaTime)) {
+            enemy.impulse *= std::exp(-deltaTime * 5.5f);
+            continue;
+        }
+
         if (enemy.type == EnemyType::Bat || enemy.type == EnemyType::Wraith) {
             const glm::vec2 tangent(-direction.y, direction.x);
             const float amplitude = enemy.type == EnemyType::Bat ? 0.30f : 0.45f;
@@ -64,31 +70,35 @@ void SurvivorsLayer::UpdateEnemies(float deltaTime)
         if (!enemy.alive) {
             continue;
         }
-        glm::vec2 push(0.0f, 0.0f);
-        m_grid.ForEachNear(enemy.position, enemy.radius + 96.0f, [&](uint32_t otherIndex) {
-            if (otherIndex == i || otherIndex >= m_enemies.size()) {
-                return;
-            }
-            const Enemy& other = m_enemies[otherIndex];
-            if (!other.alive) {
-                return;
-            }
-            const glm::vec2 offset = enemy.position - other.position;
-            const float distance = Length(offset);
-            const float minimum = enemy.radius + other.radius;
-            if (distance > 0.001f && distance < minimum) {
-                push += offset / distance * ((minimum - distance) / minimum);
-            }
-        });
-        const float weight = enemy.type == EnemyType::Boss ? 24.0f : 90.0f;
-        enemy.position += push * weight * deltaTime;
+        // 冲刺中的使徒不吃软推挤：冲出去的轨迹得是它自己锁定的那条直线
+        const bool bossSkillLocked = enemy.type == EnemyType::Boss && enemy.dashPhase != Enemy::DashPhase::None;
+        if (!bossSkillLocked) {
+            glm::vec2 push(0.0f, 0.0f);
+            m_grid.ForEachNear(enemy.position, enemy.radius + 96.0f, [&](uint32_t otherIndex) {
+                if (otherIndex == i || otherIndex >= m_enemies.size()) {
+                    return;
+                }
+                const Enemy& other = m_enemies[otherIndex];
+                if (!other.alive) {
+                    return;
+                }
+                const glm::vec2 offset = enemy.position - other.position;
+                const float distance = Length(offset);
+                const float minimum = enemy.radius + other.radius;
+                if (distance > 0.001f && distance < minimum) {
+                    push += offset / distance * ((minimum - distance) / minimum);
+                }
+            });
+            const float weight = enemy.type == EnemyType::Boss ? 24.0f : 90.0f;
+            enemy.position += push * weight * deltaTime;
 
-        // 玩家也是碰撞体：把贴在身上的敌人挤开一点（Boss 体型大，只要求少量间隙）
-        const glm::vec2 away = enemy.position - m_playerPosition;
-        const float distanceToPlayer = Length(away);
-        const float minimumDistance = PLAYER_RADIUS + enemy.radius * (enemy.type == EnemyType::Boss ? 0.35f : 0.85f);
-        if (distanceToPlayer > 0.001f && distanceToPlayer < minimumDistance) {
-            enemy.position += away / distanceToPlayer * (minimumDistance - distanceToPlayer);
+            // 玩家也是碰撞体：把贴在身上的敌人挤开一点（Boss 体型大，只要求少量间隙）
+            const glm::vec2 away = enemy.position - m_playerPosition;
+            const float distanceToPlayer = Length(away);
+            const float minimumDistance = PLAYER_RADIUS + enemy.radius * (enemy.type == EnemyType::Boss ? 0.35f : 0.85f);
+            if (distanceToPlayer > 0.001f && distanceToPlayer < minimumDistance) {
+                enemy.position += away / distanceToPlayer * (minimumDistance - distanceToPlayer);
+            }
         }
     }
 
@@ -99,7 +109,8 @@ void SurvivorsLayer::UpdateEnemies(float deltaTime)
         }
         const float distance = Length(enemy.position - m_playerPosition);
         if (enemy.type == EnemyType::Boss) {
-            if (distance > 1100.0f) {
+            // 冲刺途中不重定位：锁定的轨迹要被玩家看清楚，只收招之后再判断
+            if (distance > 1100.0f && enemy.dashPhase == Enemy::DashPhase::None) {
                 const float angle = Rand(0.0f, TAU);
                 enemy.position = m_playerPosition + glm::vec2(std::cos(angle), std::sin(angle)) * 560.0f;
                 enemy.velocity = glm::vec2(0.0f, 0.0f);
@@ -113,6 +124,66 @@ void SurvivorsLayer::UpdateEnemies(float deltaTime)
 
     // 供武器索敌 / 弹丸碰撞使用的最新网格
     m_grid.Build(m_enemies);
+}
+
+// 血月使徒的冲刺：None（常规追击）→ Charge（站定蓄力，方向已锁）→ Dash（沿锁定的直线冲）→ None。
+// 返回 true = 这一帧的移动由技能接管，调用方跳过常规转向。
+bool SurvivorsLayer::UpdateBossDash(Enemy& boss, float distanceToPlayer, float deltaTime)
+{
+    boss.dashCooldown = std::max(0.0f, boss.dashCooldown - deltaTime);
+
+    if (boss.dashPhase == Enemy::DashPhase::Charge) {
+        // 蓄力：方向在开始时锁死，身子只带着惯性再滑一点点就停住（给玩家 1 秒横移躲开的机会）
+        boss.dashTimer -= deltaTime;
+        boss.velocity *= std::exp(-deltaTime * 14.0f);
+        boss.impulse = glm::vec2(0.0f, 0.0f);
+        boss.position += boss.velocity * deltaTime;
+        if (boss.dashTimer <= 0.0f) {
+            boss.dashPhase = Enemy::DashPhase::Dash;
+            boss.dashTimer = BOSS_DASH_DISTANCE / BOSS_DASH_SPEED;
+            boss.velocity = boss.dashDirection * BOSS_DASH_SPEED;
+            SpawnRing(boss.position, boss.radius * 3.4f, 0.32f, C_BLOOD);
+            m_shake = std::max(m_shake, 10.0f);
+        }
+        return true;
+    }
+
+    if (boss.dashPhase == Enemy::DashPhase::Dash) {
+        boss.dashTimer -= deltaTime;
+        boss.velocity = boss.dashDirection * BOSS_DASH_SPEED;
+        const glm::vec2 next = boss.position + boss.velocity * deltaTime;
+
+        // 冲到围栏就停在场地边上：阴影区里的敌人无敌，不能让它一路冲进黑处躲起来
+        const float margin = boss.radius * 0.9f;
+        const glm::vec2 inside(std::clamp(next.x, -ARENA_HALF + margin, ARENA_HALF - margin),
+                               std::clamp(next.y, -ARENA_HALF + margin, ARENA_HALF - margin));
+        const bool hitFence = Length(inside - next) > 0.001f;
+        boss.position = inside;
+
+        if (hitFence || boss.dashTimer <= 0.0f) {
+            boss.dashPhase = Enemy::DashPhase::None;
+            boss.dashCooldown = BOSS_DASH_COOLDOWN;
+            // 收招只留一点点前冲惯性（常规转向按 5/s 收敛，全留着会再多滑出 BOSS_DASH_SPEED/5 ≈ 320）
+            boss.velocity = boss.dashDirection * (BOSS_DASH_SPEED * 0.25f);
+            SpawnRing(boss.position, boss.radius * 2.4f, 0.28f, glm::vec4(0.72f, 0.16f, 0.24f, 1.0f));
+            if (hitFence) {
+                m_shake = std::max(m_shake, 7.0f);
+            }
+        }
+        return true;
+    }
+
+    // 常规阶段：进入触发距离（太近了不冲，免得贴着玩家原地站桩）且冷却结束
+    // → 锁定当前朝向玩家的方向，开始蓄力
+    if (boss.dashCooldown <= 0.0f && distanceToPlayer >= BOSS_DASH_MIN_RANGE &&
+        distanceToPlayer <= BOSS_DASH_TRIGGER_RANGE) {
+        boss.dashPhase = Enemy::DashPhase::Charge;
+        boss.dashTimer = BOSS_DASH_CHARGE_TIME;
+        boss.dashDirection = (m_playerPosition - boss.position) / distanceToPlayer;
+        SpawnRing(boss.position, boss.radius * 2.2f, 0.45f, glm::vec4(1.0f, 0.32f, 0.30f, 1.0f));
+        return true;
+    }
+    return false;
 }
 
 void SurvivorsLayer::UpdateEnemySpawning(float deltaTime)
@@ -208,15 +279,17 @@ void SurvivorsLayer::SpawnEnemy(EnemyType type, const glm::vec2& position)
     enemy.speed = tuning.speed;
     enemy.phase = Rand(0.0f, TAU);
 
-    // 数值随关卡递增：血量 +30%/关、伤害 +12%/关、防御 +8%/关
+    // 数值随关卡递增（曲线见 SurvivorsInternal.h 的 Enemy*Scale / BossHpScale）：
+    // 小怪血量线性（+30% 每关），伤害二次（1 + 0.05·(n−1)²，第 10 关约 5 倍），防御线性（+8% 每关）；
+    // Boss 的血量**单独一条二次曲线**（第 5 关 2 倍、第 10 关 10 倍），伤害 / 防御与小怪共用同一套。
     // 经验与金币**不随关卡放大**，直接用表里的固定值（掉落节奏靠刷怪量收紧来提升）
-    const float stageScale = static_cast<float>(m_stage - 1);
-    enemy.damage = tuning.damage * (1.0f + 0.12f * stageScale);
-    enemy.defense = tuning.defense * (1.0f + 0.08f * stageScale);
+    const bool isBoss = type == EnemyType::Boss;
+    enemy.damage = tuning.damage * EnemyDamageScale(m_stage);
+    enemy.defense = tuning.defense * EnemyDefenseScale(m_stage);
     enemy.xp = tuning.xp;
     enemy.coins = tuning.coins;
 
-    const float hp = tuning.hp * (1.0f + 0.30f * stageScale);
+    const float hp = tuning.hp * (isBoss ? BossHpScale(m_stage) : EnemyHpScale(m_stage));
     enemy.hp = hp;
     enemy.maxHp = hp;
 
