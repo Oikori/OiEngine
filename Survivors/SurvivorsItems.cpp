@@ -187,7 +187,8 @@ void SurvivorsLayer::DescribeItem(ItemId id, std::string& title, std::string& de
                                       COIN_EVENT_STEP, g[0]);
             break;
         case ItemId::ScavengerCharm:
-            description = std::format("【拾金事件】每累计拾取 {} 枚金币，回复 {:.0f} 点生命。",
+            // 单件只有 0.5 点，整数格式会显示成「回复 0 点生命」，这里保留一位小数
+            description = std::format("【拾金事件】每累计拾取 {} 枚金币，回复 {:.1f} 点生命。",
                                       COIN_EVENT_STEP, g[0]);
             break;
         case ItemId::GreedChain:
