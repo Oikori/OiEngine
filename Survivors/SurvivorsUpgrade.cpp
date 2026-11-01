@@ -179,10 +179,10 @@ SurvivorsLayer::PassiveGain SurvivorsLayer::PassiveGainFor(int passive, float mu
         case PassiveId::Might:    gain.primary = 0.03f * multiplier; break;                        // 伤害 +3%
         case PassiveId::Haste:    gain.primary = 0.025f * multiplier; break;                       // 攻速 +2.5%
         case PassiveId::Swift:    gain.primary = BARE_STATS.moveSpeed * 0.0167f * multiplier; break; // 移速 +1.67% 裸值（≈ +4）
-        case PassiveId::Vitality: gain.primary = 2.0f * multiplier; break;                         // 生命 +2
+        case PassiveId::Vitality: gain.primary = 4.0f * multiplier; break;                         // 生命 +4
         case PassiveId::Crit:     gain.primary = 0.015f * multiplier; break;                       // 暴击率 +1.5%
         case PassiveId::CritDamage: gain.primary = 0.15f * multiplier; break;                      // 暴击伤害 +15%
-        case PassiveId::Regen:    gain.primary = 1.0f * multiplier; break;                         // 每秒回血 +1（单独调高：其余卡砍到 1/3 时它 ×10 回到这个量级）
+        case PassiveId::Regen:    gain.primary = 0.1f * multiplier; break;                         // 每秒回血 +0.1
         case PassiveId::Bulwark:  gain.primary = 2.0f * multiplier; break;                         // 防御 +2
         case PassiveId::Sunder:
         default:

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "OiEngine.h"
 
 // 《永夜幸存者》的程序化几何库。
@@ -38,6 +40,27 @@ namespace OiEngine::Survivors {
 
         Ref<VertexArray> lineGrid;      // 世界网格线（用 RenderCommand::DrawLines 绘制）
         uint32_t lineGridVertexCount = 0;
+
+        // ---- 贴图素材（可选）----
+        // assets/textures/ 下存在对应 PNG 时用它替换上面的程序化剪影；文件缺失或解码失败
+        // 就退回几何版本，游戏照常可玩（不影响联机/其它场景）。
+        Ref<VertexArray> spriteQuad;      // 贴图方片：position + uv，原点在精灵中心
+        Ref<Texture2D> playerSprite[4];   // 角色：守夜人 / 猎手 / 修女 / 术士
+        Ref<Texture2D> enemySprite[5];    // 敌人：蝙蝠 / 食尸鬼 / 幽灵 / 蛮兽 / 使徒
+
+        bool HasPlayerSprite(int index) const;
+        bool HasEnemySprite(int index) const;
+
+        // ---- 道具 / 武器 / 被动的图标（可选，同样缺图就留空，UI 自动跳过）----
+        // 数组顺序由调用方给定（SurvivorsItems.cpp 按 ItemId / WeaponId / PassiveId 的枚举顺序传入），
+        // 这样这一层不需要认识游戏层的枚举
+        std::vector<Ref<Texture2D>> itemIcons;
+        std::vector<Ref<Texture2D>> weaponIcons;
+        std::vector<Ref<Texture2D>> passiveIcons;
+
+        void LoadIcons(const std::vector<const char*>& itemFiles,
+                       const std::vector<const char*>& weaponFiles,
+                       const std::vector<const char*>& passiveFiles);
 
         void Load();
         void Unload();

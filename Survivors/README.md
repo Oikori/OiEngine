@@ -1,7 +1,8 @@
 # 永夜幸存者（Survivors）
 
 类《吸血鬼幸存者》的俯视角自动战斗生存游戏，与 SandBox、Platformer 一样是引用 `Engine` 的独立可执行工程。
-全部美术都是程序化几何（顶点色网格），不依赖任何图片资源。
+美术主体是程序化几何（顶点色网格）；`assets/textures/` 里另有 9 张可选的贴图精灵（4 角色 + 5 敌人），
+有图就贴图、缺图自动退回几何，所以删掉整个 textures 目录游戏照常能玩。
 
 ## 构建与运行
 
@@ -98,12 +99,16 @@ $env:PATH = "D:\Program Files\JetBrains\CLion 2025.2.1\bin\mingw\bin;$env:PATH"
 | `SurvivorsUpgrade.cpp` | 经验与升级卡：卡池（只剩属性卡）、品质掷点、整组刷新、属性结算 |
 | `SurvivorsItems.cpp` | 道具系统：目录 / 持有上限 / 效果、商店（掷货 / 刷新 / 购买）、开局选角与每 5 级选武器、面板排队 |
 | `SurvivorsEvents.cpp` | 事件系统：`RaiseEvent`（击杀 / 拾取金币 / 受伤 / 过关 / 暴击 / 计时 / 消费 / 升级）与事件道具的响应（回血 / 铸币 / 范围爆发 / 永久成长） |
-| `SurvivorsRender.cpp` | 世界渲染（程序化网格绘制顺序与变换） |
+| `SurvivorsRender.cpp` | 世界渲染（程序化网格 + 贴图精灵的绘制顺序与变换） |
 | `SurvivorsUi.cpp` | 全部 ImGui 面板：标题 / 选角 / HUD / 升级卡 / 选武器 / 商店 / 暂停 / 结算 / 帮助 / 设置 |
 | `SurvivorsInternal.h` | 内部共享的调参表、调色板与数学小工具（`inline`，仅本工程使用） |
-| `SurvivorsArt.h/.cpp` | 程序化几何库：**四个角色形象**（重甲守夜人 / 弓手 / 修女 / 术士）/ 五种敌人 / 投射物 / 金币 / 特效 / 地面装饰 |
+| `SurvivorsArt.h/.cpp` | 程序化几何库：**四个角色形象**（重甲守夜人 / 弓手 / 修女 / 术士）/ 五种敌人 / 投射物 / 金币 / 特效 / 地面装饰；同时负责加载 `assets/textures/` 里的可选贴图精灵 |
 | `assets/audio/` | 2 首 BGM + 11 个音效（程序化生成，无外部素材） |
+| `assets/textures/` | 9 张可选精灵（`player_*` 4 张 + `enemy_*` 5 张，512×512 透明 PNG），缺文件自动退回几何剪影 |
+| `assets/textures/icons/` | 53 张可选图标（40 道具 + 4 武器 + 9 被动，256×256），升级卡 / 武器卡 / 商店 / 暂停面板都用它 |
+| `assets/shader/scenes/survivors_sprite.glsl` | 贴图精灵着色器（position + uv，`u_Tint` 染色 / `u_Flash` 闪白） |
 | `tools/generate_audio.py` | 音频生成脚本：`python Survivors/tools/generate_audio.py` |
+| `tools/prepare_sprites.py` | 立绘切图脚本：白底图片 → 透明精灵（去背 / 去白边 / 统一画布），支持单图与网格图集 |
 
 实现要点：
 

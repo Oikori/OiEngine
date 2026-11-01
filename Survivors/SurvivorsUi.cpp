@@ -55,6 +55,58 @@ void SurvivorsLayer::OnImGuiRender()
     }
 }
 
+// ============================ 图标 ============================
+
+namespace {
+    // 图标缺失时返回它（UI 拿到空引用就跳过绘制）
+    const Ref<Texture2D> NO_ICON;
+}
+
+const Ref<Texture2D>& SurvivorsLayer::ItemIcon(ItemId id) const
+{
+    const size_t index = static_cast<size_t>(id);
+    if (index >= m_art.itemIcons.size()) {
+        return NO_ICON;
+    }
+    return m_art.itemIcons[index];
+}
+
+const Ref<Texture2D>& SurvivorsLayer::WeaponIcon(int weapon) const
+{
+    if (weapon < 0 || static_cast<size_t>(weapon) >= m_art.weaponIcons.size()) {
+        return NO_ICON;
+    }
+    return m_art.weaponIcons[static_cast<size_t>(weapon)];
+}
+
+const Ref<Texture2D>& SurvivorsLayer::PassiveIcon(int passive) const
+{
+    if (passive < 0 || static_cast<size_t>(passive) >= m_art.passiveIcons.size()) {
+        return NO_ICON;
+    }
+    return m_art.passiveIcons[static_cast<size_t>(passive)];
+}
+
+void SurvivorsLayer::DrawCardIcon(const Ref<Texture2D>& icon, float cardWidth, float size,
+                                  const glm::vec4& glow)
+{
+    if (icon) {
+        ImGui::SetCursorPosX((cardWidth - size) * 0.5f);
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        // 底衬：暗色卡片上图标容易糊进背景，垫一层按稀有度取的淡光把人托出来
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            ImVec2(origin.x - 5.0f, origin.y - 5.0f),
+            ImVec2(origin.x + size + 5.0f, origin.y + size + 5.0f),
+            IM_COL32(static_cast<int>(glow.x * 96.0f), static_cast<int>(glow.y * 96.0f),
+                     static_cast<int>(glow.z * 96.0f), 110),
+            size * 0.24f);
+        // 纹理是 stb_image 的 flip 约定（v = 0 在图像底部），ImGui 的 UV 要把 V 反过来
+        ImGui::Image(static_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size),
+                     ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+    }
+    ImGui::Dummy(ImVec2(0.0f, 4.0f));
+}
+
 void SurvivorsLayer::RenderTitle()
 {
     const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -141,10 +193,10 @@ void SurvivorsLayer::RenderSetup()
     const ImVec4 colDim(0.62f, 0.66f, 0.80f, 0.95f);
 
     const int characterCount = std::max(1, CharacterCount());
-    const float cardWidth = 244.0f;
+    const float cardWidth = 260.0f;
     const float gap = 18.0f;
-    const float charHeight = 186.0f;
-    const float weaponHeight = 188.0f;
+    const float charHeight = 312.0f;
+    const float weaponHeight = 244.0f;
 
     const float rowWidth = cardWidth * static_cast<float>(characterCount) +
                            gap * static_cast<float>(characterCount - 1);
@@ -202,11 +254,33 @@ void SurvivorsLayer::RenderSetup()
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 
         ImGui::TextColored(ImVec4(color.x, color.y, color.z, 1.0f), "角色 · 史诗");
-        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+        ImGui::Dummy(ImVec2(0.0f, 2.0f));
+
+        // 立绘：开局是玩家第一次见到「自己要扮演谁」，有贴图就铺一张（没有则留白占位，保持卡片等高）
+        constexpr float PORTRAIT = 132.0f;
+        if (m_art.HasPlayerSprite(i)) {
+            const float indent = (cardWidth - 32.0f - PORTRAIT) * 0.5f;
+            ImGui::SetCursorPosX(indent);
+            // 底衬：暗色卡片上直接铺深色角色会糊成一片，垫一层角色色的淡光把人形托出来
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                ImVec2(origin.x - 6.0f, origin.y - 6.0f),
+                ImVec2(origin.x + PORTRAIT + 6.0f, origin.y + PORTRAIT + 6.0f),
+                IM_COL32(static_cast<int>(color.x * 88.0f), static_cast<int>(color.y * 88.0f),
+                         static_cast<int>(color.z * 88.0f), 120),
+                10.0f);
+            // 纹理是 stb_image 的 flip 约定（v = 0 在图像底部），ImGui 默认 (0,0) 在左上 ——
+            // 这里要把 V 反过来，否则立绘上下颠倒
+            ImGui::Image(static_cast<ImTextureID>(m_art.playerSprite[i]->GetRendererID()),
+                         ImVec2(PORTRAIT, PORTRAIT), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+        } else {
+            ImGui::Dummy(ImVec2(0.0f, PORTRAIT));
+        }
+
         ImGui::SetWindowFontScale(1.5f);
         ImGui::TextColored(colText, "%s", name.c_str());
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+        ImGui::Dummy(ImVec2(0.0f, 2.0f));
         ImGui::PushStyleColor(ImGuiCol_Text, colBody);
         ImGui::TextWrapped("%s", description.c_str());
         ImGui::PopStyleColor();
@@ -257,6 +331,7 @@ void SurvivorsLayer::RenderSetup()
         ImGui::Begin(identifier, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 
+        DrawCardIcon(WeaponIcon(weapon), cardWidth, 52.0f, color);
         ImGui::TextColored(ImVec4(color.x, color.y, color.z, 1.0f), "武器 · Lv.1");
         ImGui::Dummy(ImVec2(0.0f, 2.0f));
         ImGui::SetWindowFontScale(1.35f);
@@ -359,8 +434,8 @@ void SurvivorsLayer::RenderHelp()
 
         section("操作");
         body("WASD / 方向键移动   ·   武器自动索敌开火，无需攻击键");
-        body("升级时点击卡片选择（或按 1 / 2 / 3）；面板下方的「刷新全部三张」花金币整组重抽（快捷键 R）");
-        body("选武器点卡片（或按 1 / 2 / 3 / 4）；商店点「购买」，R 整组刷新货位，点「离开商店」回战斗（没有键盘离开键）");
+        body("升级时点击卡片选择（或按 1 / 2 / 3）；面板下方的「刷新」花金币整组重抽（快捷键 R）");
+        body("选武器点卡片（或按 1 / 2 / 3 / 4）；商店点「购买」，R 刷新货位，点「离开商店」回战斗（没有键盘离开键）");
         body("ESC 暂停 / 继续：战斗、升级选卡、商店三个阶段都能按，继续时回到暂停前的界面");
         body("F4 打开调试面板（FPS / 实体数 / 伤害统计 / 快速验证按钮）");
 
@@ -371,7 +446,7 @@ void SurvivorsLayer::RenderHelp()
         body("武器四把：月刃（直线穿透）/ 圣光环（近身脉冲）/ 回旋镰（往返切割）/ 雷暴（范围落雷），各自最高 5 级。");
 
         section("道具");
-        body("每关通关后开商店，一次摆 4 件道具（角色不卖），可以整组刷新（(6 + 4 × 本次已刷新次数) × 关卡系数）。");
+        body("每关通关后开商店，一次摆 4 件道具（角色不卖），可以刷新（(6 + 4 × 本次已刷新次数) × 关卡系数）。");
         body("关卡系数 = 1 + 0.4 × (已过关数 − 1)：第一次开商店是原价，越往后刷新越贵。");
         body("种类决定能不能重复拿：普通类（无上限，可叠）· 限制类（每件有持有上限 1~3，原「独特」道具也在这里）· 角色（开局选）。");
         body("稀有度是每件道具固定的档位（普通 / 高级 / 稀有 / 史诗）：铁片永远是高级、血袋永远是普通，");
@@ -763,7 +838,7 @@ void SurvivorsLayer::RenderLevelUp()
     const bool canReroll = m_coins >= rerollCost;
 
     const float cardWidth = 300.0f;
-    const float cardHeight = 246.0f;
+    const float cardHeight = 300.0f;
     const float startY = display.y * 0.5f - cardHeight * 0.5f + 18.0f;
 
     ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, startY - 80.0f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -776,8 +851,6 @@ void SurvivorsLayer::RenderLevelUp()
         ImGui::TextColored(ImVec4(1.0f, 0.86f, 0.50f, 1.0f), "等 级 提 升");
         ImGui::SetWindowFontScale(1.0f);
         ImGui::TextColored(ImVec4(0.66f, 0.70f, 0.86f, 0.95f), "点击卡片选择一项祝福（也可按 1 / 2 / 3）");
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, canReroll ? 1.0f : 0.55f),
-                           "金币 %d   ·   整组刷新 %d 币（每刷一次更贵）", m_coins, rerollCost);
     }
     ImGui::End();
 
@@ -811,8 +884,8 @@ void SurvivorsLayer::RenderLevelUp()
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 
-        // 标签：品质名（卡池里现在只有属性卡；加成倍率与层数都不在卡片上显示）
-        ImGui::TextColored(ImVec4(option.color.x, option.color.y, option.color.z, 1.0f), "%s", option.tag.c_str());
+        // 品级不写字：卡框 / 图标底衬 / 按钮都用品质色，靠颜色区分
+        DrawCardIcon(PassiveIcon(option.index), cardWidth, 76.0f, option.color);
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
         ImGui::SetWindowFontScale(1.45f);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 1.0f, 1.0f));
@@ -851,12 +924,11 @@ void SurvivorsLayer::RenderLevelUp()
         ImGui::BeginDisabled(!canReroll);
         char rerollLabel[64];
         std::snprintf(rerollLabel, sizeof(rerollLabel),
-                      canReroll ? "刷新全部三张  (R · %d 币)" : "刷新全部三张  (需 %d 币)", rerollCost);
+                      canReroll ? "刷新  (R · %d 币)" : "刷新  (需 %d 币)", rerollCost);
         if (ImGui::Button(rerollLabel, ImVec2(344.0f, 40.0f))) {
             rerollClicked = true;
         }
         ImGui::EndDisabled();
-        ImGui::TextColored(ImVec4(0.62f, 0.64f, 0.78f, 0.9f), "重抽三张 · 本次已刷 %d 次 · 快捷键 R", m_rerollCount);
     }
     ImGui::End();
     ImGui::PopStyleVar();
@@ -887,7 +959,7 @@ void SurvivorsLayer::RenderWeaponPick()
     ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0.0f, 0.0f), display, IM_COL32(4, 4, 12, 205));
 
     const float cardWidth = 292.0f;
-    const float cardHeight = 238.0f;
+    const float cardHeight = 326.0f;
     const float gap = 20.0f;
     const float startY = display.y * 0.5f - cardHeight * 0.5f + 16.0f;
     const float totalWidth = cardWidth * static_cast<float>(WEAPON_COUNT) +
@@ -949,6 +1021,7 @@ void SurvivorsLayer::RenderWeaponPick()
         ImGui::Begin(identifier, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 
+        DrawCardIcon(WeaponIcon(weapon), cardWidth, 76.0f, maxed ? glm::vec4(0.4f, 0.4f, 0.5f, 1.0f) : color);
         ImGui::TextColored(maxed ? ImVec4(0.56f, 0.58f, 0.66f, 1.0f)
                                  : ImVec4(color.x, color.y, color.z, 1.0f), "%s", tag.c_str());
         ImGui::Dummy(ImVec2(0.0f, 6.0f));
@@ -999,7 +1072,7 @@ void SurvivorsLayer::RenderShop()
     ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0.0f, 0.0f), display, IM_COL32(3, 5, 10, 212));
 
     const float cardWidth = 272.0f;
-    const float cardHeight = 272.0f;
+    const float cardHeight = 320.0f;
     const float gap = 18.0f;
     const int count = static_cast<int>(m_shopOffers.size());
     const float startY = display.y * 0.5f - cardHeight * 0.5f + 8.0f;
@@ -1018,10 +1091,7 @@ void SurvivorsLayer::RenderShop()
         ImGui::SetWindowFontScale(2.0f);
         ImGui::TextColored(ImVec4(1.0f, 0.86f, 0.50f, 1.0f), "商 店");
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextColored(ImVec4(0.86f, 0.88f, 0.95f, 1.0f),
-                           "第 %d 关已通过   ·   金币 %d   ·   角色只能在开局选", m_stage - 1, m_coins);
-        ImGui::TextColored(ImVec4(0.62f, 0.66f, 0.80f, 0.95f),
-                           "普通类可叠 · 限制类有持有上限 · 整组刷新 %d 币", rerollCost);
+        ImGui::TextColored(ImVec4(0.86f, 0.88f, 0.95f, 1.0f), "第 %d 关已通过", m_stage - 1);
     }
     ImGui::End();
 
@@ -1029,8 +1099,6 @@ void SurvivorsLayer::RenderShop()
     int buySlot = -1;
     for (int slot = 0; slot < count; ++slot) {
         const ShopOffer& offer = m_shopOffers[static_cast<size_t>(slot)];
-        const ItemCategory category = ItemCategoryOf(offer.id);
-        const glm::vec4 categoryColor = ITEM_CATEGORY_COLORS[static_cast<int>(category)];
         const Rarity rarity = ItemRarity(offer.id);   // 稀有度是道具的固定属性
         const glm::vec4 rarityColor = RARITY_COLORS[static_cast<int>(rarity)];
         const bool affordable = m_coins >= offer.price;
@@ -1060,20 +1128,19 @@ void SurvivorsLayer::RenderShop()
         ImGui::Begin(identifier, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 
-        // 种类 + 品质两个标签（分色）
-        ImGui::TextColored(ImVec4(categoryColor.x, categoryColor.y, categoryColor.z, 1.0f), "%s",
-                           ITEM_CATEGORY_NAMES[static_cast<int>(category)]);
-        ImGui::SameLine(0.0f, 8.0f);
-        ImGui::TextColored(ImVec4(rarityColor.x, rarityColor.y, rarityColor.z, 1.0f), "· %s",
-                           RARITY_NAMES[static_cast<int>(rarity)]);
+        // 种类 / 品质不写字（靠图标底衬与卡框的颜色区分）；持有上限挪到卡片右上角
+        DrawCardIcon(ItemIcon(offer.id), cardWidth, 76.0f, rarityColor);
+        const int held = ItemCount(offer.id);
         if (ItemCap(offer.id) > 0) {
-            ImGui::SameLine(0.0f, 8.0f);
             char capLabel[32];
-            std::snprintf(capLabel, sizeof(capLabel), "上限 %d", ItemCap(offer.id));
-            ImGui::TextColored(ImVec4(0.50f, 0.54f, 0.64f, 0.95f), "%s", capLabel);
+            std::snprintf(capLabel, sizeof(capLabel), "上限(%d/%d)", held, ItemCap(offer.id));
+            const ImVec2 textSize = ImGui::CalcTextSize(capLabel);
+            const ImVec2 cardPos = ImGui::GetWindowPos();
+            ImGui::GetWindowDrawList()->AddText(
+                ImVec2(cardPos.x + cardWidth - 16.0f - textSize.x, cardPos.y + 14.0f),
+                IM_COL32(128, 136, 162, 235), capLabel);
         }
 
-        ImGui::Dummy(ImVec2(0.0f, 6.0f));
         ImGui::SetWindowFontScale(1.4f);
         ImGui::TextColored(offer.sold ? ImVec4(0.52f, 0.54f, 0.62f, 1.0f) : ImVec4(0.95f, 0.95f, 1.0f, 1.0f),
                            "%s", name.c_str());
@@ -1085,8 +1152,7 @@ void SurvivorsLayer::RenderShop()
         ImGui::TextWrapped("%s", description.c_str());
         ImGui::PopStyleColor();
 
-        // 已持有件数 / 买不起 / 到上限的提示
-        const int held = ItemCount(offer.id);
+        // 已持有件数 / 到上限的提示
         ImGui::Dummy(ImVec2(0.0f, 4.0f));
         if (held > 0) {
             ImGui::TextColored(ImVec4(0.56f, 0.62f, 0.76f, 1.0f), "已持有 %d 件", held);
@@ -1108,10 +1174,8 @@ void SurvivorsLayer::RenderShop()
             buySlot = slot;
         }
         ImGui::EndDisabled();
-        if (!offer.sold) {
-            ImGui::TextColored(affordable ? ImVec4(1.0f, 0.85f, 0.45f, 0.95f)
-                                          : ImVec4(0.85f, 0.42f, 0.38f, 0.95f),
-                               affordable ? "买得起" : "金币不足");
+        if (!offer.sold && !affordable) {
+            ImGui::TextColored(ImVec4(0.85f, 0.42f, 0.38f, 0.95f), "金币不足");
         }
 
         ImGui::End();
@@ -1144,15 +1208,13 @@ void SurvivorsLayer::RenderShop()
         ImGui::BeginDisabled(m_coins < rerollCost);
         char rerollLabel[64];
         std::snprintf(rerollLabel, sizeof(rerollLabel),
-                      m_coins >= rerollCost ? "整组刷新  (R · %d 币)" : "整组刷新  (需 %d 币)", rerollCost);
+                      m_coins >= rerollCost ? "刷新  (R · %d 币)" : "刷新  (需 %d 币)", rerollCost);
         const bool rerollClicked = ImGui::Button(rerollLabel, ImVec2(300.0f, 42.0f));
         ImGui::EndDisabled();
         ImGui::PopStyleColor(3);
         ImGui::SameLine(0.0f, 12.0f);
         // 离开商店只留这一个按钮：Enter / 空格不再是快捷键，ESC 在商店里改成打开暂停面板
         const bool leaveClicked = ImGui::Button("离开商店", ImVec2(220.0f, 42.0f));
-        ImGui::TextColored(ImVec4(0.62f, 0.64f, 0.78f, 0.9f), "本次已刷 %d 次 · 钱包 %d 币 · 快捷键 R",
-                           m_shopRerolls, m_coins);
 
         if (rerollClicked) {
             RerollShop();   // 整组换新；货位数量可能变化，下一帧再画
@@ -1281,6 +1343,11 @@ void SurvivorsLayer::RenderPause()
                 continue;
             }
             ImGui::SameLine(0.0f, 10.0f);
+            if (const Ref<Texture2D>& icon = WeaponIcon(weapon)) {
+                ImGui::Image(static_cast<ImTextureID>(icon->GetRendererID()), ImVec2(18.0f, 18.0f),
+                             ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+                ImGui::SameLine(0.0f, 4.0f);
+            }
             ImGui::TextColored(ImVec4(WEAPON_COLORS[weapon].x, WEAPON_COLORS[weapon].y,
                                       WEAPON_COLORS[weapon].z, 1.0f),
                                "%s %s", WEAPON_NAMES[weapon], ROMAN[level]);
@@ -1304,6 +1371,11 @@ void SurvivorsLayer::RenderPause()
                 }
                 if (shown % 3 != 0) {
                     ImGui::SameLine(0.0f, 12.0f);
+                }
+                if (const Ref<Texture2D>& icon = ItemIcon(id)) {
+                    ImGui::Image(static_cast<ImTextureID>(icon->GetRendererID()), ImVec2(18.0f, 18.0f),
+                                 ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+                    ImGui::SameLine(0.0f, 4.0f);
                 }
                 // 颜色取道具自己的固定稀有度
                 const glm::vec4 color = RARITY_COLORS[static_cast<int>(ItemRarity(id))];

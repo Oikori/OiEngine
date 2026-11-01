@@ -57,7 +57,7 @@ const std::unordered_map<SurvivorsLayer::ItemId, SurvivorsLayer::ItemDef> Surviv
     { ItemId::DragonScale,    { "龙鳞",       ItemCategory::Limited,   Rarity::Rare,     2, { 9.0f, 6.0f } } },  // 防御 / 生命上限
     { ItemId::MistLantern,    { "迷雾灯",     ItemCategory::Limited,   Rarity::Common,   3, { 40.0f, 0.10f } } },  // 拾取范围 / 金币收益
     { ItemId::WailingBell,    { "哀嚎钟",     ItemCategory::Limited,   Rarity::Rare,     2, { 18.0f } } },   // 每 12 杀的音波伤害
-    { ItemId::ScavengerCharm, { "拾荒护符",   ItemCategory::Limited,   Rarity::Advanced, 3, { 2.0f } } },    // 每 10 枚金币回复
+    { ItemId::ScavengerCharm, { "拾荒护符",   ItemCategory::Limited,   Rarity::Advanced, 3, { 0.5f } } },    // 每 10 枚金币回复
     { ItemId::MartyrStigma,   { "受难者圣痕", ItemCategory::Limited,   Rarity::Rare,     2, { 24.0f, 0.06f } } },  // 每 5 次受伤暗焰伤害 / 回复比例
     { ItemId::ColdBracer,     { "寒铁护腕",   ItemCategory::Limited,   Rarity::Advanced, 2, { 6.0f, 0.05f } } },   // 防御 / 攻速
     { ItemId::BloodRose,      { "血玫瑰",     ItemCategory::Limited,   Rarity::Advanced, 2, { 14.0f, 0.50f } } },  // 生命上限 / 每秒回复
@@ -712,6 +712,90 @@ void SurvivorsLayer::ApplyCharacter(ItemId character)
     ApplyItemEffect(character);   // 角色固定史诗，数值就是 ITEM_DEFS 里 gain 那组
 }
 
+// ============================ 图标 ============================
+
+// 三组图标按对应枚举的**声明顺序**排列。文件在 assets/textures/icons/，由
+// Survivors/tools/prepare_sprites.py 从生图的图集切出来；缺文件的位置留 nullptr
+// （角色类道具没有独立图标，UI 用立绘代替或不画）
+void SurvivorsLayer::LoadItemIcons()
+{
+    static const char* ITEM_ICONS[] = {
+        "assets/textures/icons/item_blood_bag.png",        // BloodBag
+        "assets/textures/icons/item_whetstone.png",        // Whetstone
+        "assets/textures/icons/item_iron_plate.png",       // IronPlate
+        "assets/textures/icons/item_hunter_mark.png",      // HunterMark
+        "assets/textures/icons/item_star_boots.png",       // StarBoots
+        "assets/textures/icons/item_soul_lamp.png",        // SoulLamp
+        "assets/textures/icons/item_iron_nail.png",        // IronNail
+        "assets/textures/icons/item_hunter_cloak.png",     // HunterCloak
+        "assets/textures/icons/item_crimson_pendant.png",  // CrimsonPendant
+        "assets/textures/icons/item_mithril_ring.png",     // MithrilRing
+        "assets/textures/icons/item_lumen_crown.png",      // LumenCrown
+        "assets/textures/icons/item_coin_hammer.png",      // CoinHammer
+        "assets/textures/icons/item_blood_sigil.png",      // BloodSigil
+        "assets/textures/icons/item_gale_feather.png",     // GaleFeather
+        "assets/textures/icons/item_dragon_scale.png",     // DragonScale
+        "assets/textures/icons/item_mist_lantern.png",     // MistLantern
+        "assets/textures/icons/item_wailing_bell.png",     // WailingBell
+        "assets/textures/icons/item_scavenger_charm.png",  // ScavengerCharm
+        "assets/textures/icons/item_martyr_stigma.png",    // MartyrStigma
+        "assets/textures/icons/item_cold_bracer.png",      // ColdBracer
+        "assets/textures/icons/item_blood_rose.png",       // BloodRose
+        "assets/textures/icons/item_broken_blade.png",     // BrokenBlade
+        "assets/textures/icons/item_cursed_ring.png",      // CursedRing
+        "assets/textures/icons/item_star_shard.png",       // StarShard
+        "assets/textures/icons/item_dawn_blade.png",       // DawnBlade
+        "assets/textures/icons/item_blood_dagger.png",     // BloodDagger
+        "assets/textures/icons/item_hourglass.png",        // Hourglass
+        "assets/textures/icons/item_metronome.png",        // Metronome
+        "assets/textures/icons/item_greed_pact.png",       // GreedPact
+        "assets/textures/icons/item_merchant_eye.png",     // MerchantEye
+        "assets/textures/icons/item_tome_of_growth.png",   // TomeOfGrowth
+        "assets/textures/icons/item_starlight_page.png",   // StarlightPage
+        "assets/textures/icons/item_undying_heart.png",    // UndyingHeart
+        "assets/textures/icons/item_thorn_mail.png",       // ThornMail
+        "assets/textures/icons/item_greed_coffin.png",     // GreedCoffin
+        "assets/textures/icons/item_moonshot_pupil.png",   // MoonshotPupil
+        "assets/textures/icons/item_greed_chain.png",      // GreedChain
+        "assets/textures/icons/item_dawn_pact.png",        // DawnPact
+        "assets/textures/icons/item_berserk_sigil.png",    // BerserkSigil
+        "assets/textures/icons/item_blood_pact.png",       // BloodPact
+        nullptr,                                            // CharWatchman（用角色立绘）
+        nullptr,                                            // CharHunter
+        nullptr,                                            // CharSister
+        nullptr,                                            // CharWarlock
+    };
+    static const char* WEAPON_ICONS[] = {
+        "assets/textures/icons/weapon_moon_blade.png",   // MoonBlade
+        "assets/textures/icons/weapon_aura.png",         // Aura
+        "assets/textures/icons/weapon_scythe.png",       // Scythe
+        "assets/textures/icons/weapon_storm.png",        // Storm
+    };
+    static const char* PASSIVE_ICONS[] = {
+        "assets/textures/icons/passive_might.png",       // Might
+        "assets/textures/icons/passive_haste.png",       // Haste
+        "assets/textures/icons/passive_swift.png",       // Swift
+        "assets/textures/icons/passive_vitality.png",    // Vitality
+        "assets/textures/icons/passive_crit.png",        // Crit
+        "assets/textures/icons/passive_critdamage.png",  // CritDamage
+        "assets/textures/icons/passive_regen.png",       // Regen
+        "assets/textures/icons/passive_bulwark.png",     // Bulwark
+        "assets/textures/icons/passive_sunder.png",      // Sunder
+    };
+
+    static_assert(sizeof(ITEM_ICONS) / sizeof(ITEM_ICONS[0]) == static_cast<size_t>(ItemId::Count),
+                  "图标表必须和 ItemId 枚举一一对应");
+    static_assert(sizeof(WEAPON_ICONS) / sizeof(WEAPON_ICONS[0]) == static_cast<size_t>(WeaponId::Count),
+                  "图标表必须和 WeaponId 枚举一一对应");
+    static_assert(sizeof(PASSIVE_ICONS) / sizeof(PASSIVE_ICONS[0]) == static_cast<size_t>(PassiveId::Count),
+                  "图标表必须和 PassiveId 枚举一一对应");
+
+    const std::vector<const char*> itemFiles(ITEM_ICONS, ITEM_ICONS + std::size(ITEM_ICONS));
+    const std::vector<const char*> weaponFiles(WEAPON_ICONS, WEAPON_ICONS + std::size(WEAPON_ICONS));
+    const std::vector<const char*> passiveFiles(PASSIVE_ICONS, PASSIVE_ICONS + std::size(PASSIVE_ICONS));
+    m_art.LoadIcons(itemFiles, weaponFiles, passiveFiles);
+}
+
 void SurvivorsLayer::BeginRun()
 {
     if (m_state != State::Setup) {
@@ -732,14 +816,9 @@ void SurvivorsLayer::BeginRun()
     m_stageBanner = 2.2f;
     m_stageBannerBoss = false;
     m_levelUpLockout = 0.6f;
-    m_hurtCooldown = 2.0f;   // 开局短暂无敌，避免刚开局就被贴脸的蝙蝠打一下
+    m_hurtCooldown = 2.0f;   // 开局短暂无敌，避免刚开局就被贴脸的敌人打一下
 
-    // 开局就在玩家附近放几只蝙蝠：第一波击杀正好把等级顶到 2，立刻展示升级卡
-    for (int i = 0; i < 4; ++i) {
-        const float angle = TAU * static_cast<float>(i) / 4.0f + Rand(-0.35f, 0.35f);
-        SpawnEnemy(EnemyType::Bat, m_playerPosition +
-                   glm::vec2(std::cos(angle), std::sin(angle)) * Rand(160.0f, 250.0f));
-    }
+    // 开局不再预放蝙蝠：第一波敌人交给关卡刷怪节奏（UpdateSpawning），进场时屏幕是空的
 
     EnsureBgm(false);
     SpawnRing(m_playerPosition, 160.0f, 0.6f, ItemColor(m_character));

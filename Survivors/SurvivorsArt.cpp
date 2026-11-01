@@ -794,6 +794,41 @@ namespace {
         }
         return BuildLineMesh(builder, vertexCount);
     }
+
+    // ---------------- 贴图精灵 ----------------
+
+    // 贴图方片：position + uv，原点在中心、范围 ±0.5（和 quad 一致，绘制时直接 Scale(尺寸)）
+    Ref<VertexArray> CreateSpriteQuad()
+    {
+        float vertices[] = {
+            -0.5f, -0.5f, 0.0f,   0.0f, 0.0f,
+             0.5f, -0.5f, 0.0f,   1.0f, 0.0f,
+             0.5f,  0.5f, 0.0f,   1.0f, 1.0f,
+            -0.5f,  0.5f, 0.0f,   0.0f, 1.0f,
+        };
+        uint32_t indices[] = { 0, 1, 2, 2, 3, 0 };
+
+        Ref<VertexArray> vertexArray = VertexArray::Create();
+        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
+        vertexBuffer->SetLayout({
+            { ShaderDataType::Float3, "a_Position" },
+            { ShaderDataType::Float2, "a_TexCoord" },
+        });
+        vertexArray->AddVertexBuffer(vertexBuffer);
+        vertexArray->SetIndexBuffer(IndexBuffer::Create(indices, 6));
+        return vertexArray;
+    }
+
+    // 载入一张精灵贴图；文件缺失 / 解码失败返回 nullptr（调用方退回程序化几何）
+    Ref<Texture2D> LoadSprite(const char* path)
+    {
+        Ref<Texture2D> texture = Texture2D::Create(path);
+        if (!texture || !texture->IsLoaded()) {
+            OI_WARN("Survivors: 贴图缺失，用程序化剪影代替：{}", path);
+            return nullptr;
+        }
+        return texture;
+    }
 }
 
 namespace OiEngine::Survivors {
@@ -828,10 +863,48 @@ namespace OiEngine::Survivors {
         sigil = CreateSigil();
 
         lineGrid = CreateGrid(lineGridVertexCount);
+
+        // ---- 贴图素材（可选）----
+        // 约定命名；缺文件的槽位留空，绘制时自动退回上面的程序化剪影
+        spriteQuad = CreateSpriteQuad();
+        static const char* PLAYER_SPRITES[4] = {
+            "assets/textures/player_watchman.png",
+            "assets/textures/player_hunter.png",
+            "assets/textures/player_sister.png",
+            "assets/textures/player_warlock.png",
+        };
+        static const char* ENEMY_SPRITES[5] = {
+            "assets/textures/enemy_bat.png",
+            "assets/textures/enemy_ghoul.png",
+            "assets/textures/enemy_wraith.png",
+            "assets/textures/enemy_brute.png",
+            "assets/textures/enemy_boss.png",
+        };
+        int playerLoaded = 0;
+        int enemyLoaded = 0;
+        for (int i = 0; i < 4; ++i) {
+            playerSprite[i] = LoadSprite(PLAYER_SPRITES[i]);
+            playerLoaded += playerSprite[i] ? 1 : 0;
+        }
+        for (int i = 0; i < 5; ++i) {
+            enemySprite[i] = LoadSprite(ENEMY_SPRITES[i]);
+            enemyLoaded += enemySprite[i] ? 1 : 0;
+        }
+        OI_INFO("Survivors: 贴图素材 角色 {}/4 · 敌人 {}/5", playerLoaded, enemyLoaded);
     }
 
     void SurvivorsArt::Unload()
     {
+        spriteQuad.reset();
+        for (Ref<Texture2D>& texture : playerSprite) {
+            texture.reset();
+        }
+        for (Ref<Texture2D>& texture : enemySprite) {
+            texture.reset();
+        }
+        itemIcons.clear();
+        weaponIcons.clear();
+        passiveIcons.clear();
         playerWatchman.reset();
         playerHunter.reset();
         playerSister.reset();
@@ -858,5 +931,44 @@ namespace OiEngine::Survivors {
         sigil.reset();
         lineGrid.reset();
         lineGridVertexCount = 0;
+    }
+
+    bool SurvivorsArt::HasPlayerSprite(int index) const
+    {
+        return index >= 0 && index < 4 && playerSprite[index] != nullptr;
+    }
+
+    bool SurvivorsArt::HasEnemySprite(int index) const
+    {
+        return index >= 0 && index < 5 && enemySprite[index] != nullptr;
+    }
+
+    void SurvivorsArt::LoadIcons(const std::vector<const char*>& itemFiles,
+                                 const std::vector<const char*>& weaponFiles,
+                                 const std::vector<const char*>& passiveFiles)
+    {
+        const auto loadAll = [](const std::vector<const char*>& files,
+                                std::vector<Ref<Texture2D>>& target) {
+            target.assign(files.size(), nullptr);
+            int loaded = 0;
+            for (size_t i = 0; i < files.size(); ++i) {
+                if (files[i] == nullptr) {
+                    continue;   // 角色类道具没有独立图标，UI 会退回立绘或干脆不画
+                }
+                target[i] = LoadSprite(files[i]);
+                loaded += target[i] ? 1 : 0;
+            }
+            return loaded;
+        };
+
+        const int items = loadAll(itemFiles, itemIcons);
+        const int weapons = loadAll(weaponFiles, weaponIcons);
+        const int passives = loadAll(passiveFiles, passiveIcons);
+        // 分母只算「登记了文件」的槽位：角色类道具本来就没有独立图标
+        const int itemSlots = static_cast<int>(std::count_if(
+            itemFiles.begin(), itemFiles.end(), [](const char* path) { return path != nullptr; }));
+        OI_INFO("Survivors: 图标 道具 {}/{} · 武器 {}/{} · 被动 {}/{}",
+                items, itemSlots, weapons, static_cast<int>(weaponFiles.size()),
+                passives, static_cast<int>(passiveFiles.size()));
     }
 }

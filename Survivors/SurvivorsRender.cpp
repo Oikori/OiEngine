@@ -24,6 +24,39 @@ void SurvivorsLayer::DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& tra
     RenderCommand::DrawIndexed(mesh);
 }
 
+// 贴图精灵的提交口：几何已经画完的段落里调它，只切一次 program，收尾绑回顶点色管线
+void SurvivorsLayer::FlushSprites(const std::vector<SpriteCommand>& commands)
+{
+    if (!m_spriteShader || !m_art.spriteQuad) {
+        return;
+    }
+    bool bound = false;
+    for (const SpriteCommand& command : commands) {
+        if (!command.texture) {
+            continue;
+        }
+        if (!bound) {
+            m_spriteShader->Bind();
+            bound = true;
+        }
+        m_spriteShader->SetMat4("u_Transform", command.transform);
+        m_spriteShader->SetFloat4("u_Tint", command.tint);
+        m_spriteShader->SetFloat("u_Flash", command.flash);
+        m_spriteShader->SetFloat4("u_FlashColor", command.flashColor);
+        command.texture->Bind(0);
+        RenderCommand::DrawIndexed(m_art.spriteQuad);
+    }
+    if (bound) {
+        m_shader->Bind();
+    }
+}
+
+void SurvivorsLayer::DrawSprite(const Ref<Texture2D>& texture, const glm::mat4& transform,
+                                const glm::vec4& tint, float flash, const glm::vec4& flashColor)
+{
+    FlushSprites({ { texture, transform, tint, flashColor, flash } });
+}
+
 void SurvivorsLayer::RenderWorld()
 {
     m_shader->Bind();
@@ -208,6 +241,10 @@ void SurvivorsLayer::DrawCoins()
 
 void SurvivorsLayer::DrawEnemies()
 {
+    // 有贴图的敌人先收集、循环结束统一提交：整段只切一次 program，几百个敌人也只是一次切换
+    std::vector<SpriteCommand> sprites;
+    sprites.reserve(64);
+
     for (const Enemy& enemy : m_enemies) {
         if (!enemy.alive) {
             continue;
@@ -249,20 +286,31 @@ void SurvivorsLayer::DrawEnemies()
                      glm::vec4(0.0f, 0.0f, 0.0f, 0.38f), 1.0f);
         }
 
+        // 贴在几何上的 tint（命中 / 蓄力 / 阴影压暗）与贴在贴图上的 flash 分开算：
+        // 几何靠把颜色提过 1.0 出闪白，贴图乘完会糊，改用 mix 到 flashColor
+        const bool inShadow = InShadow(enemy.position);
         glm::vec4 tint = WHITE;
+        float flash = 0.0f;
+        glm::vec4 flashColor(1.0f, 0.96f, 0.94f, 1.0f);
         if (enemy.hitFlash > 0.0f) {
-            const float flash = enemy.hitFlash / 0.18f;
-            tint = glm::vec4(1.0f + flash * 1.4f, 1.0f + flash * 0.6f, 1.0f + flash * 0.6f, 1.0f);
+            const float hit = std::clamp(enemy.hitFlash / 0.18f, 0.0f, 1.0f);
+            tint = glm::vec4(1.0f + hit * 1.4f, 1.0f + hit * 0.6f, 1.0f + hit * 0.6f, 1.0f);
+            flash = hit * 0.75f;
         }
         if (enemy.type == EnemyType::Boss && enemy.dashPhase == Enemy::DashPhase::Charge) {
             // 蓄力：越接近起冲整体越泛红，一眼看出「它要冲了」
             const float charge = 1.0f - std::clamp(enemy.dashTimer / BOSS_DASH_CHARGE_TIME, 0.0f, 1.0f);
             tint *= glm::vec4(1.0f + 0.70f * charge, 1.0f - 0.30f * charge, 1.0f - 0.34f * charge, 1.0f);
+            if (0.38f * charge > flash) {
+                flash = 0.38f * charge;
+                flashColor = glm::vec4(1.0f, 0.22f, 0.24f, 1.0f);
+            }
         }
-        if (InShadow(enemy.position)) {
+        if (inShadow) {
             // 阴影里的敌人整体压暗：一眼看出「这家伙现在打不到」
             tint *= glm::vec4(0.42f, 0.40f, 0.54f, 1.0f);
         }
+        const glm::vec4 spriteTint = inShadow ? glm::vec4(0.46f, 0.44f, 0.60f, 1.0f) : WHITE;
 
         if (enemy.type == EnemyType::Boss) {
             DrawMesh(m_art.ring, Translate(glm::vec3(enemy.position.x, enemy.position.y - 6.0f, -1.2f)) *
@@ -297,9 +345,22 @@ void SurvivorsLayer::DrawEnemies()
             }
         }
 
-        DrawMesh(*mesh, Translate(glm::vec3(enemy.position.x, enemy.position.y + bob, 0.0f)) *
-                        Scale(glm::vec3(scale * scaleX, scale, 1.0f)), tint);
+        const int spriteIndex = static_cast<int>(enemy.type);
+        if (m_art.HasEnemySprite(spriteIndex)) {
+            // 贴图路径：尺寸沿用 radius 推导的体积，位置 / 朝向动画（bob / 扑翼）完全一致。
+            // Q 版精灵体块更饱满，放大 25% 才和原本的视觉占位匹配
+            constexpr float SPRITE_ZOOM = 1.25f;
+            sprites.push_back({ m_art.enemySprite[spriteIndex],
+                                Translate(glm::vec3(enemy.position.x, enemy.position.y + bob, 0.0f)) *
+                                    Scale(glm::vec3(scale * scaleX * SPRITE_ZOOM, scale * SPRITE_ZOOM, 1.0f)),
+                                spriteTint, flashColor, flash });
+        } else {
+            DrawMesh(*mesh, Translate(glm::vec3(enemy.position.x, enemy.position.y + bob, 0.0f)) *
+                            Scale(glm::vec3(scale * scaleX, scale, 1.0f)), tint);
+        }
     }
+
+    FlushSprites(sprites);
 }
 
 void SurvivorsLayer::DrawPlayer()
@@ -367,11 +428,23 @@ void SurvivorsLayer::DrawPlayer()
                        characterColor.z * 0.7f + 0.3f, 0.26f), 1.0f);
 
     glm::vec4 tint = WHITE;
+    float flash = 0.0f;
     if (m_hurtCooldown > 0.0f && std::fmod(m_hurtCooldown, 0.22f) < 0.12f) {
         tint = glm::vec4(1.6f, 0.7f, 0.7f, 1.0f);
+        flash = 0.55f;   // 再高就把 Q 版的大脑袋糊成一团色块了
     }
-    DrawMesh(*body, Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y + bob, 0.6f)) *
-                    Scale(glm::vec3(64.0f, 64.0f, 1.0f)), tint);
+
+    // 贴图比几何多一圈披风 / 帽檐，放大到 88 才和原来的剪影占位一致
+    constexpr float PLAYER_SPRITE_SIZE = 88.0f;
+    const glm::mat4 bodyTransform =
+        Translate(glm::vec3(m_playerPosition.x, m_playerPosition.y + bob, 0.6f)) *
+        Scale(glm::vec3(PLAYER_SPRITE_SIZE, PLAYER_SPRITE_SIZE, 1.0f));
+    if (m_art.HasPlayerSprite(characterIndex)) {
+        DrawSprite(m_art.playerSprite[characterIndex], bodyTransform, WHITE, flash,
+                   glm::vec4(1.0f, 0.52f, 0.52f, 1.0f));
+    } else {
+        DrawMesh(*body, bodyTransform, tint);
+    }
 }
 
 void SurvivorsLayer::DrawProjectiles()

@@ -55,6 +55,7 @@ void SurvivorsLayer::OnAttach()
 {
     CreateShaders();
     m_art.Load();
+    LoadItemIcons();
     LoadAudio();
     RenderCommand::SetClearColor(glm::vec4(0.030f, 0.028f, 0.062f, 1.0f));
     ReturnToTitle();
@@ -90,6 +91,7 @@ void SurvivorsLayer::OnDetach()
 void SurvivorsLayer::CreateShaders()
 {
     m_shader = Shader::Create("assets/shader/scenes/survivors.glsl");
+    m_spriteShader = Shader::Create("assets/shader/scenes/survivors_sprite.glsl");
 }
 
 // ============================ 音频 ============================

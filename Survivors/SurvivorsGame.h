@@ -275,6 +275,7 @@ namespace OiEngine::Survivors {
 
         // ---- 初始化 ----
         void CreateShaders();
+        void LoadItemIcons();   // 道具 / 武器 / 被动图标（定义在 SurvivorsItems.cpp，按枚举顺序建表）
         void ResetRun();        // 清一局的状态，然后进入 State::Setup（选角色 + 武器）
         void BeginRun();        // 应用开局选择（角色 / 武器）并开打
         void ReturnToTitle();   // 清局并切回标题界面（结算窗口的「回到标题」也用它）
@@ -401,6 +402,21 @@ namespace OiEngine::Survivors {
         // ---- 渲染 ----
         void DrawMesh(const Ref<VertexArray>& mesh, const glm::mat4& transform,
                       const glm::vec4& tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), float falloff = 0.0f);
+        // 贴图精灵：tint 整体染色，flash 把颜色往 flashColor 混（受击闪白 / Boss 蓄力泛红）。
+        // 返回前会把顶点色管线重新绑上，调用方不必关心 program 切换。
+        void DrawSprite(const Ref<Texture2D>& texture, const glm::mat4& transform,
+                        const glm::vec4& tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                        float flash = 0.0f,
+                        const glm::vec4& flashColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+        // 贴图精灵的绘制条目：几何与贴图穿插时先收集，循环结束统一提交（只切一次 program）
+        struct SpriteCommand {
+            Ref<Texture2D> texture;
+            glm::mat4 transform = glm::mat4(1.0f);
+            glm::vec4 tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+            glm::vec4 flashColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+            float flash = 0.0f;
+        };
+        void FlushSprites(const std::vector<SpriteCommand>& commands);
         void RenderWorld();
         void DrawBackground();
         void DrawGround();
@@ -415,6 +431,12 @@ namespace OiEngine::Survivors {
         void DrawScreenOverlay();
         void RenderTitle();
         void RenderSetup();       // 开局：选角色 + 武器
+        // 卡片图标：取对应贴图（没有就返回空），UI 一律走这几个入口
+        const Ref<Texture2D>& ItemIcon(ItemId id) const;
+        const Ref<Texture2D>& WeaponIcon(int weapon) const;
+        const Ref<Texture2D>& PassiveIcon(int passive) const;
+        // 卡片顶部居中图标 + 稀有度色底衬；没有图标时只占一点行高，卡片不会塌
+        void DrawCardIcon(const Ref<Texture2D>& icon, float cardWidth, float size, const glm::vec4& glow);
         void RenderHud();
         void RenderHelp();
         void RenderOptions();
@@ -505,6 +527,7 @@ namespace OiEngine::Survivors {
 
         SurvivorsArt m_art;
         Ref<Shader> m_shader;
+        Ref<Shader> m_spriteShader;   // 贴图精灵用的着色器（顶点色管线的贴图版本）
         FollowCamera m_camera;
         std::mt19937 m_rng{ std::random_device{}() };
 

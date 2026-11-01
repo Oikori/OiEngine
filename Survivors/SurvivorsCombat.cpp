@@ -107,7 +107,7 @@ void SurvivorsLayer::DamagePlayer(float amount)
     // 玩家挨打：怪物没有穿甲，防御全额生效
     const float taken = ResolveDamage(amount, 0.0f, m_baseStats.defense);
     m_playerHp -= taken;
-    m_hurtCooldown = 0.95f;
+    m_hurtCooldown = 0.4f;   // 受击后的无敌窗口：短到能连续挨打，够到不会同一帧被贴脸的多只怪打死
     m_hurtFlash = 1.0f;
     m_shake = std::max(m_shake, 15.0f);
     PlaySfx(SfxId::Hurt);
