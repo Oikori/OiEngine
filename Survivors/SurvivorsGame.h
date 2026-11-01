@@ -599,7 +599,7 @@ namespace OiEngine::Survivors {
         // 金币：击杀掉落、走近自动吸取；刷新升级卡 / 刷新商店 / 买道具的货币
         int m_coins = 0;
         int m_coinsEarned = 0;   // 本局累计获得（结算面板展示）
-        int m_rerollCount = 0;   // **本次选取**已刷新次数（每次开面板清零），刷新价 = 4 + 3 × 它
+        int m_rerollCount = 0;   // **本次选取**已刷新次数（每次开面板清零）
 
         // 场上的东西
         std::vector<Enemy> m_enemies;
