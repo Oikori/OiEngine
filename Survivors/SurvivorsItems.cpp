@@ -82,7 +82,7 @@ const std::unordered_map<SurvivorsLayer::ItemId, SurvivorsLayer::ItemDef> Surviv
     { ItemId::BerserkSigil,   { "狂战徽记",   ItemCategory::Limited,   Rarity::Epic,     1, { 0.30f, -8.0f } } }, // 攻速 / 防御（负面）
     { ItemId::BloodPact,      { "血契",       ItemCategory::Limited,   Rarity::Epic,     1, { 30.0f, 0.40f } } },  // 生命上限 / 击杀回血
     // 角色类：固定史诗，开局选择（gain 是开局的初始属性）
-    { ItemId::CharWatchman,   { "守夜人",     ItemCategory::Character, Rarity::Epic,     1, { 24.0f, 12.0f } } },  // 生命上限 / 防御
+    { ItemId::CharWatchman,   { "守夜人",     ItemCategory::Character, Rarity::Epic,     1, { 24.0f, 20.0f } } },  // 生命上限 / 防御
     { ItemId::CharHunter,     { "猎手",       ItemCategory::Character, Rarity::Epic,     1,
                                 { BARE_MOVE_SPEED * 0.10f, 0.08f } } },                                      // 移速 / 暴击率
     { ItemId::CharSister,     { "修女",       ItemCategory::Character, Rarity::Epic,     1, { 0.70f, 10.0f } } },  // 每秒回复 / 生命上限
@@ -280,20 +280,26 @@ void SurvivorsLayer::DescribeItem(ItemId id, std::string& title, std::string& de
                                       g[0], g[1]);
             break;
         case ItemId::CharWatchman:
-            description = std::format("生命上限 +{:.0f} · 防御 +{:.0f}。\n扛得住，适合正面硬顶。",
-                                      g[0], g[1]);
+            description = std::format("生命上限 +{:.0f} · 防御 +{:.0f}。\n"
+                                      "特性：每 1 点防御 +{:.1f}% 伤害；生命 ≤{:.0f}% 时防御与回复翻倍。",
+                                      g[0], g[1], WATCHMAN_DEFENSE_DAMAGE_STEP * 100.0f,
+                                      WATCHMAN_LOW_HP_THRESHOLD * 100.0f);
             break;
         case ItemId::CharHunter:
-            description = std::format("移动速度 +{:.0f} · 暴击率 +{:.0f}%。\n绕圈风筝，靠暴击输出。",
-                                      g[0], g[1] * 100.0f);
+            description = std::format("移动速度 +{:.0f} · 暴击率 +{:.0f}%。\n"
+                                      "特性：月刃与回旋镰伤害 +{:.0f}%；月刃穿透改为弹射（飞向最近的未命中敌人）。",
+                                      g[0], g[1] * 100.0f, (HUNTER_WEAPON_DAMAGE_MUL - 1.0f) * 100.0f);
             break;
         case ItemId::CharSister:
-            description = std::format("每秒回复 +{:.2f} · 生命上限 +{:.0f}。\n续航最稳，容错最高。",
-                                      g[0], g[1]);
+            description = std::format("每秒回复 +{:.2f} · 生命上限 +{:.0f}。\n"
+                                      "特性：圣光环伤害 +{:.0f}%；受伤后 {:.0f} 秒内移速与回复翻倍。",
+                                      g[0], g[1], (SISTER_AURA_DAMAGE_MUL - 1.0f) * 100.0f,
+                                      SISTER_HASTE_SECONDS);
             break;
         case ItemId::CharWarlock:
-            description = std::format("全部伤害 +{:.0f}%。\n输出最高，但没有任何防御加成。",
-                                      g[0] * 100.0f);
+            description = std::format("全部伤害 +{:.0f}%。\n"
+                                      "特性：雷暴改为范围伤害，基础攻击间隔 -{:.2f} 秒。",
+                                      g[0] * 100.0f, WARLOCK_STORM_COOLDOWN_CUT);
             break;
         default:
             description = "（未知道具）";
@@ -831,48 +837,65 @@ void SurvivorsLayer::BeginRun()
 
 // ============================ 每 5 级：武器选择 ============================
 
-std::string SurvivorsLayer::DescribeWeapon(int weaponIndex, int currentLevel)
+std::string SurvivorsLayer::DescribeWeapon(int weaponIndex, int currentLevel) const
 {
-    // currentLevel = 0 表示还没有这把武器（这次选它就是从 1 级解锁）；否则展示下一级的提升
+    // currentLevel = 0 表示还没有这把武器（这次选它就是从 1 级解锁）；否则展示下一级的提升。
+    // 每张卡最后一行固定是**攻击间隔**（秒）：取表里的 cooldown 基础值，实战里还要除以 AttackSpeedMul()
+    // （急速 / 攻速道具）——卡片给基础值，四把武器之间才好横向比较、升级前后也能看出快慢变化
     const int level = std::clamp(currentLevel, 0, WEAPON_MAX_LEVEL);
     const int next = std::min(WEAPON_MAX_LEVEL, level + 1);
 
     switch (weaponIndex) {
         case 1:
             if (level <= 0) {
-                return std::format("自身周围持续脉动圣光\n伤害 {:.0f} · 半径 {:.0f}",
-                                   AURA.damage[1], AURA.radius[1]);
+                return std::format("自身周围持续脉动圣光\n伤害 {:.0f} · 半径 {:.0f}\n攻击间隔 {:.2f} 秒",
+                                   AURA.damage[1], AURA.radius[1], AURA.cooldown[1]);
             }
-            return std::format("伤害 {:.0f} → {:.0f}\n半径 {:.0f} → {:.0f}",
+            return std::format("伤害 {:.0f} → {:.0f}\n半径 {:.0f} → {:.0f}\n攻击间隔 {:.2f} → {:.2f} 秒",
                                AURA.damage[level], AURA.damage[next],
-                               AURA.radius[level], AURA.radius[next]);
+                               AURA.radius[level], AURA.radius[next],
+                               AURA.cooldown[level], AURA.cooldown[next]);
         case 2:
             if (level <= 0) {
-                return std::format("掷出回旋镰，飞出后折返\n伤害 {:.0f} · 回旋镰 {} 把",
-                                   SCYTHE.damage[1], SCYTHE.count[1]);
+                return std::format("一把锁定最近敌人，其余等分圆抛出\n伤害 {:.0f} · 回旋镰 {} 把\n攻击间隔 {:.2f} 秒",
+                                   SCYTHE.damage[1], SCYTHE.count[1], SCYTHE.cooldown[1]);
             }
-            return std::format("伤害 {:.0f} → {:.0f}\n回旋镰 {} → {} 把",
+            return std::format("伤害 {:.0f} → {:.0f}\n回旋镰 {} → {} 把\n攻击间隔 {:.2f} → {:.2f} 秒",
                                SCYTHE.damage[level], SCYTHE.damage[next],
-                               SCYTHE.count[level], SCYTHE.count[next]);
+                               SCYTHE.count[level], SCYTHE.count[next],
+                               SCYTHE.cooldown[level], SCYTHE.cooldown[next]);
         case 3:
-            if (level <= 0) {
-                return std::format("召唤落雷劈击敌群（范围伤害）\n伤害 {:.0f} · 范围 {:.0f} · 落雷 {} 道",
-                                   STORM.damage[1], STORM.radius[1], STORM.count[1]);
+            // 雷暴默认是单体（一道必打最近、一道优先打 Boss、其余随机），只有术士拿它是范围伤害、攻击间隔少 0.75 秒
+            if (m_character == ItemId::CharWarlock) {
+                if (level <= 0) {
+                    return std::format("范围落雷，半径内全中\n伤害 {:.0f} · 范围 {:.0f} · 落雷 {} 道\n攻击间隔 {:.2f} 秒",
+                                       STORM.damage[1], STORM.radius[1], STORM.count[1], StormInterval(1));
+                }
+                return std::format("伤害 {:.0f} → {:.0f} · 范围 {:.0f} → {:.0f}\n落雷 {} → {} 道\n攻击间隔 {:.2f} → {:.2f} 秒",
+                                   STORM.damage[level], STORM.damage[next],
+                                   STORM.radius[level], STORM.radius[next],
+                                   STORM.count[level], STORM.count[next],
+                                   StormInterval(level), StormInterval(next));
             }
-            return std::format("伤害 {:.0f} → {:.0f} · 范围 {:.0f} → {:.0f}\n落雷 {} → {} 道",
+            if (level <= 0) {
+                return std::format("单体落雷，先最近后 Boss\n伤害 {:.0f} · 落雷 {} 道\n攻击间隔 {:.2f} 秒",
+                                   STORM.damage[1], STORM.count[1], StormInterval(1));
+            }
+            return std::format("伤害 {:.0f} → {:.0f}\n落雷 {} → {} 道\n攻击间隔 {:.2f} → {:.2f} 秒",
                                STORM.damage[level], STORM.damage[next],
-                               STORM.radius[level], STORM.radius[next],
-                               STORM.count[level], STORM.count[next]);
+                               STORM.count[level], STORM.count[next],
+                               StormInterval(level), StormInterval(next));
         case 0:
         default:
             if (level <= 0) {
-                return std::format("锁定最近敌人，射出月刃\n伤害 {:.0f} · 飞刃 {} · 穿透 {}",
-                                   BLADE.damage[1], BLADE.count[1], BLADE.pierce[1]);
+                return std::format("锁定最近敌人，射出月刃\n伤害 {:.0f} · 飞刃 {} · 穿透 {}\n攻击间隔 {:.2f} 秒",
+                                   BLADE.damage[1], BLADE.count[1], BLADE.pierce[1], BLADE.cooldown[1]);
             }
-            return std::format("伤害 {:.0f} → {:.0f}\n飞刃 {} → {} · 穿透 {} → {}",
+            return std::format("伤害 {:.0f} → {:.0f}\n飞刃 {} → {} · 穿透 {} → {}\n攻击间隔 {:.2f} → {:.2f} 秒",
                                BLADE.damage[level], BLADE.damage[next],
                                BLADE.count[level], BLADE.count[next],
-                               BLADE.pierce[level], BLADE.pierce[next]);
+                               BLADE.pierce[level], BLADE.pierce[next],
+                               BLADE.cooldown[level], BLADE.cooldown[next]);
     }
 }
 

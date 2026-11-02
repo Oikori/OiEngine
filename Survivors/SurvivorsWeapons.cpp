@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <format>
+#include <limits>
 #include <string>
 
 using namespace OiEngine;
@@ -60,7 +61,8 @@ bool SurvivorsLayer::FireMoonBlade()
         projectile.kind = ShotKind::Blade;
         projectile.position = m_playerPosition + shotDirection * 26.0f;
         projectile.velocity = shotDirection * 880.0f;
-        projectile.damage = BLADE.damage[level] * DamageMul();
+        projectile.damage = BLADE.damage[level] * DamageMul() *
+                            WeaponDamageMul(static_cast<int>(WeaponId::MoonBlade));   // 猎手：月刃 +20%
         projectile.radius = 16.0f;
         projectile.rotation = std::atan2(-shotDirection.x, shotDirection.y);
         projectile.spin = 14.0f;
@@ -79,7 +81,8 @@ void SurvivorsLayer::PulseAura()
 {
     const int level = m_weaponLevel[static_cast<int>(WeaponId::Aura)];
     const float radius = AURA.radius[level];
-    const float damage = AURA.damage[level] * DamageMul();
+    const float damage = AURA.damage[level] * DamageMul() *
+                         WeaponDamageMul(static_cast<int>(WeaponId::Aura));   // 修女：圣光环 +50%
 
     m_grid.ForEachNear(m_playerPosition, radius, [&](uint32_t index) {
         if (index >= m_enemies.size()) {
@@ -101,7 +104,16 @@ bool SurvivorsLayer::ThrowScythes()
 {
     const int level = m_weaponLevel[static_cast<int>(WeaponId::Scythe)];
     const int count = SCYTHE.count[level];
-    const float baseAngle = Rand(0.0f, TAU);
+
+    // 投掷方向：第一把**必定朝最近的敌人**掷出（索敌范围与月刃一致），其余几把以它为起点
+    // 按 360°/count 等分圆抛出 —— 一把贴脸、其余覆盖四周，不会全砸在同一个方向上。
+    // 场上一个目标都没有时（开局 / 清场）退化成随机朝向，照样满圆抛出，回旋镰不会因为没目标而停手。
+    float baseAngle = Rand(0.0f, TAU);
+    const Enemy* target = FindNearestEnemy(m_playerPosition, m_halfHeight - 45.0f);
+    if (target != nullptr) {
+        const glm::vec2 aimed = Normalize(target->position - m_playerPosition);
+        baseAngle = std::atan2(aimed.y, aimed.x);
+    }
 
     for (int i = 0; i < count; ++i) {
         const float angle = baseAngle + TAU * static_cast<float>(i) / static_cast<float>(count);
@@ -111,7 +123,8 @@ bool SurvivorsLayer::ThrowScythes()
         projectile.kind = ShotKind::Scythe;
         projectile.position = m_playerPosition + direction * 34.0f;
         projectile.velocity = direction * 520.0f;
-        projectile.damage = SCYTHE.damage[level] * DamageMul();
+        projectile.damage = SCYTHE.damage[level] * DamageMul() *
+                            WeaponDamageMul(static_cast<int>(WeaponId::Scythe));   // 猎手：回旋镰 +20%
         projectile.radius = 30.0f;
         projectile.rotation = std::atan2(-direction.x, direction.y);
         projectile.lifetime = 4.0f;
@@ -144,29 +157,71 @@ bool SurvivorsLayer::CastStorm()
 
     const int strikes = STORM.count[level];
     const float radius = STORM.radius[level];
-    const float damage = STORM.damage[level] * DamageMul();
+    const float damage = STORM.damage[level] * DamageMul() *
+                         WeaponDamageMul(static_cast<int>(WeaponId::Storm));
+    // 默认**单体**：每一道只劈落点那一只（只有术士的雷暴带范围伤害）
+    const bool areaDamage = m_character == ItemId::CharWarlock;
+
     for (int strike = 0; strike < strikes && !targets.empty(); ++strike) {
-        const int pick = RandInt(0, static_cast<int>(targets.size()) - 1);
-        const uint32_t targetIndex = targets[static_cast<size_t>(pick)];
-        targets.erase(targets.begin() + pick);
+        size_t pick = 0;
+        if (strike == 0) {
+            // 第一道**必定**劈最近的敌人
+            float bestDistanceSq = std::numeric_limits<float>::max();
+            for (size_t i = 0; i < targets.size(); ++i) {
+                const glm::vec2 offset = m_enemies[targets[i]].position - m_playerPosition;
+                const float distanceSq = offset.x * offset.x + offset.y * offset.y;
+                if (distanceSq < bestDistanceSq) {
+                    bestDistanceSq = distanceSq;
+                    pick = i;
+                }
+            }
+        } else if (strike == 1) {
+            // 第二道**优先劈 Boss**（血月使徒）：场上有使徒就锁最近的那只，没有就退回随机
+            pick = static_cast<size_t>(RandInt(0, static_cast<int>(targets.size()) - 1));
+            float bestDistanceSq = std::numeric_limits<float>::max();
+            for (size_t i = 0; i < targets.size(); ++i) {
+                const Enemy& enemy = m_enemies[targets[i]];
+                if (enemy.type != EnemyType::Boss) {
+                    continue;
+                }
+                const glm::vec2 offset = enemy.position - m_playerPosition;
+                const float distanceSq = offset.x * offset.x + offset.y * offset.y;
+                if (distanceSq < bestDistanceSq) {
+                    bestDistanceSq = distanceSq;
+                    pick = i;
+                }
+            }
+        } else {
+            // 其余几道仍然随机
+            pick = static_cast<size_t>(RandInt(0, static_cast<int>(targets.size()) - 1));
+        }
+        const uint32_t targetIndex = targets[pick];
+        targets.erase(targets.begin() + static_cast<std::ptrdiff_t>(pick));
         if (targetIndex >= m_enemies.size() || !m_enemies[targetIndex].alive) {
             continue;
         }
         // 落点取一份拷贝：接下来会改敌人状态（命中、死亡），位置本身不该被遮住
         const glm::vec2 impact = m_enemies[targetIndex].position;
 
-        // **范围伤害**：以落点为中心，半径内所有敌人各自结算一次（逐只掷暴击）
-        m_grid.ForEachNear(impact, radius, [&](uint32_t index) {
-            if (index >= m_enemies.size()) {
-                return;
-            }
-            Enemy& enemy = m_enemies[index];
-            if (!enemy.alive || !CircleHit(enemy.position, enemy.radius, impact, radius)) {
-                return;
-            }
+        if (areaDamage) {
+            // 术士：以落点为中心，半径内所有敌人各自结算一次（逐只掷暴击）
+            m_grid.ForEachNear(impact, radius, [&](uint32_t index) {
+                if (index >= m_enemies.size()) {
+                    return;
+                }
+                Enemy& enemy = m_enemies[index];
+                if (!enemy.alive || !CircleHit(enemy.position, enemy.radius, impact, radius)) {
+                    return;
+                }
+                const bool crit = Rand(0.0f, 1.0f) < CritChance();
+                DamageEnemy(enemy, damage * (crit ? CritMultiplier() : 1.0f), crit);
+            });
+        } else {
+            // 其他角色：单体，只结算落点这一只
+            Enemy& enemy = m_enemies[targetIndex];
             const bool crit = Rand(0.0f, 1.0f) < CritChance();
             DamageEnemy(enemy, damage * (crit ? CritMultiplier() : 1.0f), crit);
-        });
+        }
 
         Fx bolt;
         bolt.kind = FxKind::Bolt;
@@ -176,8 +231,8 @@ bool SurvivorsLayer::CastStorm()
         bolt.color = C_STORM;
         m_effects.push_back(bolt);
 
-        // 冲击环的半径就是真实伤害范围：一眼能看出这一道雷覆盖多大
-        SpawnRing(impact, radius, 0.32f, C_STORM);
+        // 冲击环的半径就是真实伤害范围：单体时给一个小环，别让人以为范围雷还在
+        SpawnRing(impact, areaDamage ? radius : 64.0f, 0.32f, C_STORM);
         SpawnParticles(impact, 6, C_STORM, 220.0f, 8.0f, 0.4f);
         m_shake = std::max(m_shake, 4.0f);
     }
@@ -215,7 +270,8 @@ void SurvivorsLayer::UpdateWeapons(float deltaTime)
     const int stormLevel = m_weaponLevel[static_cast<int>(WeaponId::Storm)];
     if (stormLevel > 0 && m_stormCooldown <= 0.0f) {
         if (CastStorm()) {
-            m_stormCooldown = STORM.cooldown[stormLevel] / AttackSpeedMul();
+            // 术士的雷暴基础间隔 -0.75 秒（StormInterval 里算，含下限）
+            m_stormCooldown = StormInterval(stormLevel) / AttackSpeedMul();
         }
     }
 }
@@ -231,6 +287,9 @@ void SurvivorsLayer::UpdateProjectiles(float deltaTime)
         if (projectile.kind == ShotKind::Scythe) {
             if (!projectile.returning && projectile.age > 0.55f) {
                 projectile.returning = true;
+                // 抛出与收回算两段独立的攻击：换段时清空命中表，同一只怪在回程还能再吃一次伤害
+                // （去重只在**同一段**内生效，避免贴脸时一帧一次伤害）
+                projectile.hitIds.clear();
             }
             if (projectile.returning) {
                 const glm::vec2 toPlayer = m_playerPosition - projectile.position;
@@ -251,6 +310,7 @@ void SurvivorsLayer::UpdateProjectiles(float deltaTime)
         }
 
         bool consumed = false;
+        bool retarget = false;
         m_grid.ForEachNear(projectile.position, 72.0f, [&](uint32_t index) {
             if (consumed || index >= m_enemies.size()) {
                 return;
@@ -263,12 +323,12 @@ void SurvivorsLayer::UpdateProjectiles(float deltaTime)
                 return;
             }
 
-            if (projectile.kind == ShotKind::Scythe) {
-                if (std::find(projectile.hitIds.begin(), projectile.hitIds.end(), enemy.id) != projectile.hitIds.end()) {
-                    return;
-                }
-                projectile.hitIds.push_back(enemy.id);
+            // 同一枚弹丸在同一段飞行里对同一敌人只结算一次：命中后弹丸还会继续叠在这只怪身上飞几帧，
+            // 不去重的话一帧一次伤害。回旋镰换段（抛出 → 收回）时会清表，所以目标去程回程各吃一次
+            if (std::find(projectile.hitIds.begin(), projectile.hitIds.end(), enemy.id) != projectile.hitIds.end()) {
+                return;
             }
+            projectile.hitIds.push_back(enemy.id);
 
             const bool crit = Rand(0.0f, 1.0f) < CritChance();
             DamageEnemy(enemy, projectile.damage * (crit ? CritMultiplier() : 1.0f), crit);
@@ -280,9 +340,44 @@ void SurvivorsLayer::UpdateProjectiles(float deltaTime)
                 --projectile.pierce;
                 if (projectile.pierce <= 0) {
                     consumed = true;
+                } else {
+                    retarget = true;   // 猎手：还有穿透次数 → 命中后弹射向下一个目标
                 }
             }
         });
+
+        // 猎手：月刃的「穿透」改成弹射 —— 从弹丸**当前位置**找最近的、没被这枚飞刃打过的敌人，
+        // 把速度直接转向它（找不到目标就保持原方向继续飞，靠寿命自然结束）
+        if (retarget && !consumed && m_character == ItemId::CharHunter) {
+            const Enemy* next = nullptr;
+            float bestDistanceSq = HUNTER_BLADE_BOUNCE_RANGE * HUNTER_BLADE_BOUNCE_RANGE;
+            m_grid.ForEachNear(projectile.position, HUNTER_BLADE_BOUNCE_RANGE, [&](uint32_t index) {
+                if (index >= m_enemies.size()) {
+                    return;
+                }
+                const Enemy& enemy = m_enemies[index];
+                if (!enemy.alive || InShadow(enemy.position)) {
+                    return;
+                }
+                if (std::find(projectile.hitIds.begin(), projectile.hitIds.end(), enemy.id) != projectile.hitIds.end()) {
+                    return;   // 打过的不再回来（和「同一段只结算一次」共用这张表）
+                }
+                const glm::vec2 offset = enemy.position - projectile.position;
+                const float distanceSq = offset.x * offset.x + offset.y * offset.y;
+                if (distanceSq < bestDistanceSq) {
+                    bestDistanceSq = distanceSq;
+                    next = &enemy;
+                }
+            });
+            if (next != nullptr) {
+                const glm::vec2 direction = Normalize(next->position - projectile.position);
+                projectile.velocity = direction * 880.0f;   // 弹射不减速
+                projectile.rotation = std::atan2(-direction.x, direction.y);
+                // 每次弹射给 0.5 秒续命，免得刚接上目标就因为寿命到点消失
+                projectile.lifetime = std::max(projectile.lifetime, projectile.age + 0.5f);
+                SpawnParticles(projectile.position, 3, C_BLADE, 120.0f, 4.0f, 0.2f);
+            }
+        }
 
         if (consumed || projectile.age > projectile.lifetime ||
             Length(projectile.position - m_playerPosition) > 1600.0f) {

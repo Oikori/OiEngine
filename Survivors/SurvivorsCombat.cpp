@@ -67,12 +67,15 @@ void SurvivorsLayer::KillEnemy(Enemy& enemy)
 
     if (isBoss) {
         m_shake = 26.0f;
-        // 使徒的钱袋：拆成 12 枚散落，余数单独补一枚（总额不掉）
-        const int perCoin = std::max(1, enemy.coins / 12);
-        for (int i = 0; i < 12; ++i) {
+        // 使徒的钱袋：拆成最多 12 枚散落，余数单独补一枚（总额不掉）。
+        // 枚数按面额收敛——只有 10 枚时就是 10 个 1 枚，不会因为固定拆 12 份而多掉出来
+        const int bag = std::max(1, enemy.coins);
+        const int pieces = std::min(12, bag);
+        const int perCoin = std::max(1, bag / pieces);
+        for (int i = 0; i < pieces; ++i) {
             SpawnCoin(enemy.position + glm::vec2(Rand(-60.0f, 60.0f), Rand(-60.0f, 60.0f)), perCoin, true);
         }
-        const int remainder = enemy.coins - perCoin * 12;
+        const int remainder = bag - perCoin * pieces;
         if (remainder > 0) {
             SpawnCoin(enemy.position, remainder, true);
         }
@@ -88,11 +91,15 @@ void SurvivorsLayer::KillEnemy(Enemy& enemy)
     }
 
     if (enemy.type == EnemyType::Brute) {
-        // 石魔的钱袋摔开：拆成两枚带弧线弹出去
-        const int half = std::max(1, enemy.coins / 2);
-        SpawnCoin(enemy.position, half, true);
-        SpawnCoin(enemy.position + glm::vec2(Rand(-20.0f, 20.0f), Rand(-20.0f, 20.0f)),
-                  enemy.coins - half, true);
+        // 石魔的钱袋摔开：面额够大才拆成两枚带弧线弹出去，只有 1 枚时就是一枚（不拆出 0 面额的碎钱）
+        if (enemy.coins <= 1) {
+            SpawnCoin(enemy.position, 1, true);
+        } else {
+            const int half = enemy.coins / 2;
+            SpawnCoin(enemy.position, half, true);
+            SpawnCoin(enemy.position + glm::vec2(Rand(-20.0f, 20.0f), Rand(-20.0f, 20.0f)),
+                      enemy.coins - half, true);
+        }
         m_shake = std::max(m_shake, 5.0f);
     } else {
         SpawnCoin(enemy.position, enemy.coins, false);
@@ -104,9 +111,13 @@ void SurvivorsLayer::DamagePlayer(float amount)
     if (!m_playerAlive) {
         return;
     }
-    // 玩家挨打：怪物没有穿甲，防御全额生效
-    const float taken = ResolveDamage(amount, 0.0f, m_baseStats.defense);
+    // 玩家挨打：怪物没有穿甲，防御全额生效（守夜人低血时防御翻倍，见 DefenseStat）
+    const float taken = ResolveDamage(amount, 0.0f, DefenseStat());
     m_playerHp -= taken;
+    // 修女：受伤后 3 秒内移速与每秒回复翻倍（受伤即触发，和这次实际掉了多少血无关）
+    if (m_character == ItemId::CharSister) {
+        m_characterHaste = SISTER_HASTE_SECONDS;
+    }
     m_hurtCooldown = 0.4f;   // 受击后的无敌窗口：短到能连续挨打，够到不会同一帧被贴脸的多只怪打死
     m_hurtFlash = 1.0f;
     m_shake = std::max(m_shake, 15.0f);
@@ -180,7 +191,6 @@ void SurvivorsLayer::SpawnCoin(const glm::vec2& position, int value, bool burst)
     coin.position = position;
     coin.value = std::max(1, value);
     coin.tier = value <= 2 ? 0 : (value <= 8 ? 1 : 2);
-    coin.lifetime = COIN_LIFETIME;
     coin.phase = Rand(0.0f, TAU);
     if (burst) {
         const float angle = Rand(0.0f, TAU);
@@ -244,7 +254,7 @@ void SurvivorsLayer::SpawnDamageNumber(const glm::vec2& position, float value, b
     number.position = position;
     number.value = value;
     number.crit = crit;
-    number.lifetime = crit ? 0.85f : 0.6f;
+    number.lifetime = 1.0f;   // 飘字统一停留 1 秒（暴击 / 普通一样，读起来不赶）
     number.drift = glm::vec2(Rand(-18.0f, 18.0f), crit ? 70.0f : 46.0f);
     m_damageNumbers.push_back(number);
 }
@@ -257,7 +267,7 @@ void SurvivorsLayer::SpawnCoinNumber(const glm::vec2& position, int value)
     number.position = position;
     number.value = static_cast<float>(value);
     number.gold = true;
-    number.lifetime = 0.7f;
+    number.lifetime = 1.0f;
     number.drift = glm::vec2(Rand(-14.0f, 14.0f), 56.0f);
     m_damageNumbers.push_back(number);
 }
@@ -281,11 +291,7 @@ void SurvivorsLayer::UpdateCoins(float deltaTime)
             continue;
         }
         coin.age += deltaTime;
-        if (coin.age >= coin.lifetime) {
-            coin.alive = false;   // 太久没捡就散在夜里（经验已在击杀时给过，不会亏成长）
-            continue;
-        }
-
+        // 金币**不过期**：掉在地上就一直躺在那里，直到被吸走 / 过关时统一收进钱包
         const glm::vec2 toPlayer = m_playerPosition - coin.position;
         const float distance = Length(toPlayer);
         if (distance < pickupRadius) {

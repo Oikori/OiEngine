@@ -280,8 +280,8 @@ void SurvivorsLayer::SpawnEnemy(EnemyType type, const glm::vec2& position)
     enemy.phase = Rand(0.0f, TAU);
 
     // 数值随关卡递增（曲线见 SurvivorsInternal.h 的 Enemy*Scale / BossHpScale）：
-    // 小怪血量线性（+30% 每关），伤害二次（1 + 0.05·(n−1)²，第 10 关约 5 倍），防御线性（+8% 每关）；
-    // Boss 的血量**单独一条二次曲线**（第 5 关 2 倍、第 10 关 10 倍），伤害 / 防御与小怪共用同一套。
+    // 小怪血量线性（+30% 每关），伤害三次（1 + (n−1)³/81，第 10 关约 10 倍），防御线性（+20% 每关）；
+    // Boss 的血量**单独一条分段曲线**（第 5 关 2 倍、第 10 关 40 倍），伤害 / 防御与小怪共用同一套。
     // 经验与金币**不随关卡放大**，直接用表里的固定值（掉落节奏靠刷怪量收紧来提升）
     const bool isBoss = type == EnemyType::Boss;
     enemy.damage = tuning.damage * EnemyDamageScale(m_stage);

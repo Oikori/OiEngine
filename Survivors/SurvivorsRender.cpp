@@ -227,15 +227,14 @@ void SurvivorsLayer::DrawCoins()
         const float size = coin.tier == 0 ? 16.0f : (coin.tier == 1 ? 22.0f : 30.0f);
         const float pulse = 0.9f + 0.1f * std::sin(coin.age * 4.0f + coin.phase);
         const float bob = std::sin(coin.age * 3.0f + coin.phase) * 2.2f;
-        // 快过期时淡出，给玩家「该捡钱了」的提示
-        const float fade = std::min(1.0f, (coin.lifetime - coin.age) / 2.0f);
+        // 金币不过期：不再做「快过期淡出」，一直亮着等玩家过来捡
 
         DrawMesh(m_art.disc, Translate(glm::vec3(coin.position.x, coin.position.y, -2.05f)) *
                              Scale(glm::vec3(size * 1.9f * pulse, size * 1.9f * pulse, 1.0f)),
-                 glm::vec4(1.0f, 0.80f, 0.34f, 0.18f * fade), 1.0f);
+                 glm::vec4(1.0f, 0.80f, 0.34f, 0.18f), 1.0f);
         DrawMesh(m_art.coin, Translate(glm::vec3(coin.position.x, coin.position.y + bob, -2.0f)) *
                         RotateZ(coin.age * 1.6f + coin.phase) * Scale(glm::vec3(size, size, 1.0f)),
-                 glm::vec4(1.0f, 1.0f, 1.0f, fade));
+                 WHITE, 1.0f);
     }
 }
 

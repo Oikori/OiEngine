@@ -240,6 +240,7 @@ void SurvivorsLayer::ResetRun()
     RecalculateStats();
     m_playerHp = m_playerMaxHp;
     m_hurtCooldown = 2.0f;      // 开局短暂无敌，避免刚点开始就被贴脸的初始蝙蝠打一下
+    m_characterHaste = 0.0f;    // 修女受伤加速的计时也不能带进新一局
     m_walkPhase = 0.0f;
     m_hurtFlash = 0.0f;
     m_playerAlive = true;
@@ -303,6 +304,10 @@ void SurvivorsLayer::RecalculateStats()
 
 float SurvivorsLayer::DamageMul() const
 {
+    // 守夜人：每点防御 +0.5% 伤害。低血时防御翻倍，这条收益也跟着翻倍（「守夜」越硬越疼）
+    if (m_character == ItemId::CharWatchman) {
+        return m_baseStats.damageMul * (1.0f + WATCHMAN_DEFENSE_DAMAGE_STEP * DefenseStat());
+    }
     return m_baseStats.damageMul;
 }
 
@@ -323,7 +328,12 @@ float SurvivorsLayer::CritMultiplier() const
 
 float SurvivorsLayer::MoveSpeed() const
 {
-    return m_baseStats.moveSpeed;
+    // 修女：受伤后 3 秒内移速**翻倍**（乘在最终移速上）
+    const float speed = m_baseStats.moveSpeed;
+    if (m_character == ItemId::CharSister && m_characterHaste > 0.0f) {
+        return speed * SISTER_HASTE_MUL;
+    }
+    return speed;
 }
 
 float SurvivorsLayer::PickupRadius() const
@@ -334,6 +344,61 @@ float SurvivorsLayer::PickupRadius() const
 float SurvivorsLayer::MaxHp() const
 {
     return m_baseStats.maxHp;
+}
+
+// ---- 角色特性 ----
+
+bool SurvivorsLayer::LowHp() const
+{
+    return m_playerMaxHp > 0.0f && m_playerHp <= m_playerMaxHp * WATCHMAN_LOW_HP_THRESHOLD;
+}
+
+float SurvivorsLayer::DefenseStat() const
+{
+    // 守夜人低血进入「守夜」：防御翻倍。减伤率仍走 防御/(防御+100)，所以是体制内的加成
+    float defense = m_baseStats.defense;
+    if (m_character == ItemId::CharWatchman && LowHp()) {
+        defense *= WATCHMAN_LOW_HP_DEFENSE_MUL;
+    }
+    return std::max(0.0f, defense);
+}
+
+float SurvivorsLayer::RegenPerSecond() const
+{
+    float regen = m_baseStats.regenPerSecond;
+    if (m_character == ItemId::CharWatchman && LowHp()) {
+        regen *= WATCHMAN_LOW_HP_REGEN_MUL;
+    }
+    // 修女：受伤后的 3 秒里连回复也翻倍（和移速同一个窗口，m_characterHaste）
+    if (m_character == ItemId::CharSister && m_characterHaste > 0.0f) {
+        regen *= SISTER_HASTE_MUL;
+    }
+    return regen;
+}
+
+float SurvivorsLayer::WeaponDamageMul(int weapon) const
+{
+    // 角色专属的武器伤害倍率：猎手抬月刃 / 回旋镰，修女抬圣光环
+    switch (m_character) {
+        case ItemId::CharHunter:
+            return (weapon == static_cast<int>(WeaponId::MoonBlade) ||
+                    weapon == static_cast<int>(WeaponId::Scythe)) ? HUNTER_WEAPON_DAMAGE_MUL : 1.0f;
+        case ItemId::CharSister:
+            return weapon == static_cast<int>(WeaponId::Aura) ? SISTER_AURA_DAMAGE_MUL : 1.0f;
+        default:
+            return 1.0f;
+    }
+}
+
+float SurvivorsLayer::StormInterval(int level) const
+{
+    // 雷暴的基础间隔：表里的 cooldown，术士再砍 0.5 秒（有下限，别被攻速堆成每帧一雷）
+    const int index = std::clamp(level, 1, WEAPON_MAX_LEVEL);
+    float seconds = STORM.cooldown[index];
+    if (m_character == ItemId::CharWarlock) {
+        seconds = std::max(STORM_MIN_COOLDOWN, seconds - WARLOCK_STORM_COOLDOWN_CUT);
+    }
+    return seconds;
 }
 
 int SurvivorsLayer::ExpNeeded(int level)
@@ -555,9 +620,11 @@ void SurvivorsLayer::UpdatePlayer(float deltaTime)
     m_walkPhase += deltaTime * (2.0f + Length(m_playerVelocity) * 0.022f);
 
     m_hurtCooldown = std::max(0.0f, m_hurtCooldown - deltaTime);
+    m_characterHaste = std::max(0.0f, m_characterHaste - deltaTime);   // 修女受伤后的加速窗口
 
-    if (m_baseStats.regenPerSecond > 0.0f && m_playerHp < m_playerMaxHp) {
-        m_playerHp = std::min(m_playerMaxHp, m_playerHp + m_baseStats.regenPerSecond * deltaTime);
+    const float regen = RegenPerSecond();
+    if (regen > 0.0f && m_playerHp < m_playerMaxHp) {
+        m_playerHp = std::min(m_playerMaxHp, m_playerHp + regen * deltaTime);
     }
 }
 

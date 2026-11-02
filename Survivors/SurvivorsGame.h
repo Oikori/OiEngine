@@ -155,15 +155,14 @@ namespace OiEngine::Survivors {
             int pierce = 1;
             bool returning = false;
             bool alive = true;
-            std::vector<uint32_t> hitIds;  // 回旋镰：同一把镰刀对同一敌人只结算一次
+            std::vector<uint32_t> hitIds;  // 同一段飞行里对同一敌人只结算一次（回旋镰抛出 → 收回换段时清表）
         };
 
         struct Coin {
             glm::vec2 position{ 0.0f, 0.0f };
             glm::vec2 velocity{ 0.0f, 0.0f };
             int value = 1;
-            float age = 0.0f;
-            float lifetime = 22.0f;   // 地上的金币会消失，避免刷出来的钱永远躺在场上
+            float age = 0.0f;         // 只用来做浮动 / 旋转动画，金币本身不过期
             float phase = 0.0f;
             int tier = 0;             // 面额分档，只影响贴图大小
             bool alive = true;
@@ -351,7 +350,7 @@ namespace OiEngine::Survivors {
         // ---- 每 5 级的武器选择（从全部武器里选：新武器 or 已有武器 +1 级）----
         void StartWeaponPick();
         void ChooseWeapon(int weaponIndex);
-        static std::string DescribeWeapon(int weaponIndex, int currentLevel);   // 卡片正文（含下一级数值）
+        std::string DescribeWeapon(int weaponIndex, int currentLevel) const;   // 卡片正文（含下一级数值；按当前角色调整）
 
         // ---- 开局选择（角色类道具按目录顺序编号）----
         static ItemId CharacterItem(int index);
@@ -514,6 +513,12 @@ namespace OiEngine::Survivors {
         float MoveSpeed() const;
         float PickupRadius() const;
         float MaxHp() const;
+        // ---- 角色特性（守夜人 / 猎手 / 修女 / 术士，数值常量在 SurvivorsInternal.h）----
+        float WeaponDamageMul(int weapon) const;   // 角色专属的武器伤害倍率（猎手：月刃 / 回旋镰，修女：圣光环）
+        float DefenseStat() const;                 // 结算用的防御（守夜人低血 ×2）
+        float RegenPerSecond() const;              // 结算用的每秒回复（守夜人低血 ×2）
+        float StormInterval(int level) const;       // 雷暴的基础攻击间隔（术士 -0.75 秒）
+        bool LowHp() const;                        // 生命 ≤ WATCHMAN_LOW_HP_THRESHOLD
         static int ExpNeeded(int level);
 
         // ---- 数据 ----
@@ -545,6 +550,7 @@ namespace OiEngine::Survivors {
         float m_playerHp = 20.0f;
         float m_playerMaxHp = 20.0f;
         float m_hurtCooldown = 0.0f;
+        float m_characterHaste = 0.0f;   // 修女：受伤后的临时移速剩余时间（秒）
         float m_walkPhase = 0.0f;
         float m_hurtFlash = 0.0f;
         bool m_playerAlive = true;

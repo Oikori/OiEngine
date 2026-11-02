@@ -62,8 +62,9 @@ namespace OiEngine::Survivors {
         return std::abs(position.x) > ARENA_HALF || std::abs(position.y) > ARENA_HALF;
     }
 
-    // 金币：地上的钱会过期消失（否则后期刷怪量会让掉落表无限增长）
-    constexpr float COIN_LIFETIME = 22.0f;
+    // 金币：**不会过期** —— 掉在地上就一直留着，走近自动吸走；过关 / 通关时把全地图的金币
+    // 一次性收进钱包（AdvanceStage / TriggerVictory）。掉落表只受 MAX_COINS 限制，
+    // 挤满时最老的一枚直接折成钱进钱包，不会静默丢失
 
     // 选完升级卡回到战斗的无敌时间：面板一关，贴脸的敌人不至于立刻打掉一截血
     // （复用 m_hurtCooldown：它 > 0 时接触伤害整段跳过，见 UpdateContactDamage）
@@ -206,6 +207,23 @@ namespace OiEngine::Survivors {
     };
     inline const glm::vec4 C_THORN(0.92f, 0.46f, 0.72f, 1.0f);   // 荆棘之甲反弹的环
 
+    // ---- 角色特性（四个角色各一条被动，读数与文案都只认这里）----
+    // 守夜人：每点防御 +0.5% 伤害；生命 ≤50% 进入「守夜」状态 —— 防御与每秒回复翻倍
+    constexpr float WATCHMAN_DEFENSE_DAMAGE_STEP = 0.005f;   // 每点防御 → +0.5% 伤害
+    constexpr float WATCHMAN_LOW_HP_THRESHOLD = 0.50f;       // 生命比例到这个值以下算低血
+    constexpr float WATCHMAN_LOW_HP_DEFENSE_MUL = 2.0f;      // 低血时防御 ×2
+    constexpr float WATCHMAN_LOW_HP_REGEN_MUL = 2.0f;        // 低血时每秒回复 ×2
+    // 猎手：月刃 / 回旋镰伤害 +20%；月刃的「穿透」改成弹射（命中后飞向最近的未命中敌人）
+    constexpr float HUNTER_WEAPON_DAMAGE_MUL = 1.20f;
+    constexpr float HUNTER_BLADE_BOUNCE_RANGE = 560.0f;      // 弹射索敌半径（从弹丸当前位置算）
+    // 修女：圣光环伤害 +50%；受伤后 3 秒内移动速度与每秒回复**翻倍**
+    constexpr float SISTER_AURA_DAMAGE_MUL = 1.50f;
+    constexpr float SISTER_HASTE_MUL = 2.0f;
+    constexpr float SISTER_HASTE_SECONDS = 3.0f;
+    // 术士：雷暴变成范围伤害，基础攻击间隔 -0.75 秒（保留一个下限，别被攻速堆成每帧一雷）
+    constexpr float WARLOCK_STORM_COOLDOWN_CUT = 0.75f;
+    constexpr float STORM_MIN_COOLDOWN = 0.20f;
+
     // ---- 武器调参（下标 = 等级 1~5，0 号位不用）----
     struct WeaponTuning {
         float damage[6];
@@ -215,12 +233,13 @@ namespace OiEngine::Survivors {
         float radius[6];
     };
 
-    // 月刃：默认武器，索敌直线弹道
+    // 月刃：默认武器，索敌直线弹道。穿透 = 能打穿几只**不同**敌人（同一敌人只结算一次，见 UpdateProjectiles）：
+    // 五级 = 2 / 2 / 3 / 3 / 4（第 3 级起各 +1，第 4 级持平）；飞刃数量 1 / 1 / 2 / 2 / 2（第 5 级不再加）
     inline constexpr WeaponTuning BLADE = {
-        { 0.0f, 11.0f, 16.0f, 18.0f, 24.0f, 32.0f },
+        { 0.0f, 15.0f, 20.0f, 20.0f, 25.0f, 25.0f },
         { 0.0f, 0.58f, 0.54f, 0.50f, 0.46f, 0.40f },
-        { 0, 1, 1, 2, 2, 3 },
-        { 0, 2, 2, 2, 3, 4 },
+        { 0, 1, 1, 2, 2, 2 },
+        { 0, 2, 2, 3, 3, 4 },
         { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
     };
 
@@ -233,18 +252,19 @@ namespace OiEngine::Survivors {
         { 0.0f, 120.0f, 138.0f, 156.0f, 178.0f, 205.0f },
     };
 
-    // 回旋镰：飞出后折返，可重复切割
+    // 回旋镰：飞出后折返，可重复切割。最前面那把**锁定最近的敌人**，其余从这把的朝向起
+    // 按 360°/count 等分抛出（count = 1 时就是一把朝目标掷出），见 ThrowScythes
     inline constexpr WeaponTuning SCYTHE = {
-        { 0.0f, 22.0f, 30.0f, 36.0f, 48.0f, 62.0f },
+        { 0.0f, 30.0f, 40.0f, 40.0f, 50.0f, 60.0f },
         { 0.0f, 2.60f, 2.40f, 2.20f, 2.00f, 1.80f },
         { 0, 1, 1, 2, 2, 3 },
         { 0, 0, 0, 0, 0, 0 },
         { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
     };
 
-    // 雷暴：瞬发落雷，**落点是范围伤害**（半径随等级放大，见 STORM.radius）
+    // 雷暴：瞬发落雷，默认单体（只有术士带范围，见 CastStorm）
     inline constexpr WeaponTuning STORM = {
-        { 0.0f, 24.0f, 32.0f, 40.0f, 52.0f, 68.0f },
+        { 0.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f },
         { 0.0f, 3.00f, 2.80f, 2.60f, 2.40f, 2.20f },
         { 0, 2, 2, 3, 3, 4 },
         { 0, 0, 0, 0, 0, 0 },
@@ -262,12 +282,12 @@ namespace OiEngine::Survivors {
     };
 
     // 怪物数值的关卡成长（SpawnEnemy 统一按下面几条换算，改曲线只动这几个系数）：
-    //   小怪血量 / 防御：**线性**，每关 +30% / +8%（第 10 关 = 3.7 倍 / 1.72 倍）；
-    //   伤害（小怪与 Boss 共用）：**二次**，1 + 0.05·(n−1)² → 第 10 关 5.05 倍
-    //   （原来是线性 +12%/关，末关只有 2.08 倍；改成二次后前期温和、后期陡）
-    constexpr float ENEMY_HP_STEP = 0.30f;        // 每关 +30% 血量（线性）
-    constexpr float ENEMY_DEFENSE_STEP = 0.08f;   // 每关 +8% 防御（线性）
-    constexpr float ENEMY_DAMAGE_QUAD = 0.05f;    // 伤害的二次项系数
+    //   小怪血量 / 防御：**线性**，每关 +30% / +20%（第 10 关 = 3.7 倍 / 2.8 倍）；
+    //   伤害（小怪与 Boss 共用）：**三次**，1 + (n−1)³ / 81 → 第 10 关正好 10 倍
+    //   （第 5 关 1.79 倍，和旧二次曲线的 1.80 几乎一样：前期手感不变，最后三关才陡起来）
+    constexpr float ENEMY_HP_STEP = 0.30f;                // 每关 +30% 血量（线性）
+    constexpr float ENEMY_DEFENSE_STEP = 0.20f;           // 每关 +20% 防御（线性）
+    constexpr float ENEMY_DAMAGE_CUBIC = 1.0f / 81.0f;    // 伤害的三次项系数：末关 1 + 9³/81 = 10
 
     inline constexpr float EnemyHpScale(int stage)
     {
@@ -279,46 +299,56 @@ namespace OiEngine::Survivors {
         return 1.0f + ENEMY_DEFENSE_STEP * static_cast<float>(stage - 1);
     }
 
-    // 伤害曲线：n=1 → 1.00，n=5 → 1.80，n=7 → 2.80，n=10 → 5.05（"第 10 关约 5 倍初始值"）
+    // 伤害曲线：n=1 → 1.00，n=5 → 1.79，n=7 → 3.67，n=10 → 10.00（"第 10 关约 10 倍初始值"）
     inline constexpr float EnemyDamageScale(int stage)
     {
         const float n = static_cast<float>(stage - 1);
-        return 1.0f + ENEMY_DAMAGE_QUAD * n * n;
+        return 1.0f + ENEMY_DAMAGE_CUBIC * n * n * n;
     }
 
     // ---- Boss 单独一条血量曲线（伤害 / 防御与小怪共用上面那两条）----
-    //   血月使徒的血量是**二次**：1 − 0.35·(n−1) + 0.15·(n−1)²，
-    //   过 (1, 1.00)、(5, 2.00)、(10, 10.00) 三点 —— 第 5 关正好 2 倍基础值、第 10 关 10 倍。
-    //   二次拟合在 n=2~4 会掉到 1 以下（0.80 / 0.90 / 1.30），但 Boss 只在第 5 / 10 关出现，
-    //   那几关不会有 Boss，所以下限钳到 1.0 兜底。
-    constexpr float BOSS_HP_LINEAR = -0.35f;   // 血量曲线的一次项
-    constexpr float BOSS_HP_QUAD = 0.15f;      // 血量曲线的二次项
+    //   血月使徒的血量**分段**：第 1~5 关线性 1 → 2 倍，第 5 关之后按固定公比放大到第 10 关 40 倍
+    //   （公比 = 20^(1/5) ≈ 1.8206，即第 5→10 关每关 ×1.82：3.64 / 6.63 / 12.1 / 22.0 / 40.0）。
+    //   为什么不沿用一条二次曲线：要同时满足「第 5 关仍是 2 倍」与「第 10 关 40 倍」，
+    //   一条抛物线只能从第 5 关一路飙升、其余区段还得钳到 1 以下，分段等比才是干净的成长。
+    constexpr float BOSS_HP_STAGE5_SCALE = 2.0f;   // 第 5 关（第一个 Boss 关）= 2 倍
+    constexpr float BOSS_HP_PER_STAGE = 1.8206f;   // 第 5 关之后每关的倍率（1.8206⁵ ≈ 20）
 
     inline constexpr float BossHpScale(int stage)
     {
-        const float n = static_cast<float>(stage - 1);
-        return std::max(1.0f, 1.0f + BOSS_HP_LINEAR * n + BOSS_HP_QUAD * n * n);
+        constexpr int firstBossStage = BOSS_STAGES[0];
+        if (stage <= firstBossStage) {
+            const float n = static_cast<float>(stage - 1);
+            return 1.0f + (BOSS_HP_STAGE5_SCALE - 1.0f) * n / static_cast<float>(firstBossStage - 1);
+        }
+        float scale = BOSS_HP_STAGE5_SCALE;
+        for (int i = firstBossStage; i < stage; ++i) {
+            scale *= BOSS_HP_PER_STAGE;
+        }
+        return scale;
     }
 
     // 曲线验收：调系数时如果偏离设计目标，这里直接编译不过
-    static_assert(EnemyDamageScale(10) > 4.95f && EnemyDamageScale(10) < 5.15f);   // 末关伤害 ≈ 5 倍
-    static_assert(EnemyHpScale(10) > 3.6f && EnemyHpScale(10) < 3.8f);             // 末关小怪血量 ≈ 3.7 倍
-    static_assert(BossHpScale(5) > 1.95f && BossHpScale(5) < 2.05f);               // 第 5 关 Boss ≈ 2 倍
-    static_assert(BossHpScale(10) > 9.90f && BossHpScale(10) < 10.10f);            // 第 10 关 Boss ≈ 10 倍
+    static_assert(EnemyDamageScale(10) > 9.90f && EnemyDamageScale(10) < 10.10f);    // 末关伤害 ≈ 10 倍
+    static_assert(EnemyHpScale(10) > 3.60f && EnemyHpScale(10) < 3.80f);             // 末关小怪血量 ≈ 3.7 倍
+    static_assert(EnemyDefenseScale(10) > 2.79f && EnemyDefenseScale(10) < 2.81f);   // 末关防御 ≈ 2.8 倍
+    static_assert(BossHpScale(5) > 1.99f && BossHpScale(5) < 2.01f);                 // 第 5 关 Boss = 2 倍
+    static_assert(BossHpScale(10) > 39.9f && BossHpScale(10) < 40.1f);               // 第 10 关 Boss ≈ 40 倍
 
     // 敌人速度普遍接近（略低于）玩家，围上来之后就不容易被一条直线甩掉。
     // 怪物只有防御（没有穿甲）：防御是固定值，减伤率 = 防御 / (防御 + 100)
     // （10 → 9.1%，24 → 19.4%，50 → 33.3%，100 → 50.0%），玩家的固定穿甲按点数扣它。
     // 血月使徒的 HP / 防御按普通怪（同级基准）的 3~4 倍档次给，所以体型与血量都明显压一档；
-    // 它的**血量成长走 BossHpScale**（第 5 关 2 倍、第 10 关 10 倍），伤害 / 防御与小怪同一套。
+    // 它的**血量成长走 BossHpScale**（第 5 关 2 倍、第 10 关 40 倍），伤害 / 防御与小怪同一套。
     // 使徒的移速与玩家裸移速相同（240）：追不上也甩不掉，压迫感靠冲刺技能补（见 BOSS_DASH_*）
-    // xp 是击杀当场直接结算的经验，coins 是掉在地上的金币数量（刷新升级卡的货币）
+    // xp 是击杀当场直接结算的经验，coins 是掉在地上、拆散成多枚的金币总面额
+    // （小怪统一 1 枚、血月使徒 10 枚；拆散规则见 KillEnemy：会按面额自动减少枚数，不会超发）
     inline constexpr EnemyTuning ENEMY_TUNING[5] = {
         { 20.0f, 238.0f, 15.0f, 2.0f, 2, 1, 0.0f },         // 蝙蝠
-        { 56.0f, 188.0f, 19.0f, 3.0f, 4, 2, 10.0f },        // 食尸鬼
-        { 88.0f, 228.0f, 22.0f, 4.0f, 6, 3, 24.0f },        // 怨灵
-        { 350.0f, 158.0f, 31.0f, 6.0f, 14, 7, 50.0f },      // 石魔
-        { 1000.0f, 240.0f, 46.0f, 10.0f, 100, 45, 100.0f }, // 血月使徒
+        { 56.0f, 188.0f, 19.0f, 3.0f, 4, 1, 10.0f },        // 食尸鬼
+        { 88.0f, 228.0f, 22.0f, 4.0f, 6, 1, 24.0f },        // 怨灵
+        { 350.0f, 158.0f, 31.0f, 6.0f, 14, 1, 50.0f },      // 石魔
+        { 1000.0f, 240.0f, 46.0f, 10.0f, 100, 10, 100.0f }, // 血月使徒（10 枚：拆成 10 枚 ×1）
     };
 
     // ---- 血月使徒的冲刺技能 ----

@@ -193,15 +193,20 @@ void SurvivorsLayer::RenderSetup()
     const ImVec4 colDim(0.62f, 0.66f, 0.80f, 0.95f);
 
     const int characterCount = std::max(1, CharacterCount());
+    // 武器卡的文案要跟着「当前高亮的角色」走（术士的雷暴是范围伤害、间隔也少 0.5 秒）。
+    // 这里只同步展示用的角色标识，真正的属性结算仍在 BeginRun 的 ApplyCharacter
+    m_character = CharacterItem(std::clamp(m_setupCharacter, 0, characterCount - 1));
     const float cardWidth = 260.0f;
     const float gap = 18.0f;
-    const float charHeight = 312.0f;
-    const float weaponHeight = 244.0f;
+    // 角色卡多了「特性」两行说明（左上角那行「角色 · 史诗」已去掉，净高还是不够，给到 336）
+    const float charHeight = 336.0f;
+    // 武器卡要比角色卡矮，但至少装得下「玩法 + 主数值 + 攻击间隔」三到四行说明（窗口里固定放按钮）
+    const float weaponHeight = 272.0f;
 
     const float rowWidth = cardWidth * static_cast<float>(characterCount) +
                            gap * static_cast<float>(characterCount - 1);
     const float startX = (display.x - rowWidth) * 0.5f;
-    const float titleY = std::max(12.0f, display.y * 0.5f - 312.0f);
+    const float titleY = std::max(12.0f, display.y * 0.5f - 350.0f);
     const float charRowY = titleY + 70.0f;
     const float weaponLabelY = charRowY + charHeight + 20.0f;
     const float weaponRowY = weaponLabelY + 34.0f;
@@ -219,7 +224,7 @@ void SurvivorsLayer::RenderSetup()
         ImGui::SetWindowFontScale(2.0f);
         ImGui::TextColored(colTitle, "选 择 开 局");
         ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextColored(colDim, "角色决定初始属性（固定史诗）· 武器决定起手手段（之后每 %d 级还能再选一次）",
+        ImGui::TextColored(colDim, "角色决定初始属性与专属特性 · 武器决定起手手段（之后每 %d 级还能再选一次）",
                            WEAPON_PICK_STEP);
     }
     ImGui::End();
@@ -253,14 +258,14 @@ void SurvivorsLayer::RenderSetup()
         ImGui::Begin(identifier, nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 
-        ImGui::TextColored(ImVec4(color.x, color.y, color.z, 1.0f), "角色 · 史诗");
-        ImGui::Dummy(ImVec2(0.0f, 2.0f));
-
         // 立绘：开局是玩家第一次见到「自己要扮演谁」，有贴图就铺一张（没有则留白占位，保持卡片等高）
         constexpr float PORTRAIT = 132.0f;
         if (m_art.HasPlayerSprite(i)) {
-            const float indent = (cardWidth - 32.0f - PORTRAIT) * 0.5f;
-            ImGui::SetCursorPosX(indent);
+            // 居中：SetCursorPosX 是**窗口坐标**（0 = 窗口左边缘，不含内边距），
+            // 所以要从当前光标（= 左内边距）再加「可用宽度 − 立绘宽度」的一半；
+            // 用 GetContentRegionAvail 而不是手算 cardWidth − 32，滚动条出现时也不会偏
+            const float avail = ImGui::GetContentRegionAvail().x;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - PORTRAIT) * 0.5f);
             // 底衬：暗色卡片上直接铺深色角色会糊成一片，垫一层角色色的淡光把人形托出来
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::GetWindowDrawList()->AddRectFilled(
@@ -432,6 +437,12 @@ void SurvivorsLayer::RenderHelp()
         body("先选一个角色（角色类道具，品质固定史诗，给初始属性）和一把武器（1 级起手）。");
         body("之后每 5 级可以从四把武器里再选一次：选没拿过的武器 = 解锁 1 级，选已有的 = 升 1 级（最高 5 级）。");
 
+        section("角色特性");
+        body("守夜人：每 1 点防御 +0.5% 伤害；生命降到 50% 及以下时，防御与每秒回复翻倍。");
+        body("猎手：月刃与回旋镰伤害 +20%；月刃的穿透改为弹射 —— 命中后飞向离弹丸最近的、还没打过的敌人。");
+        body("修女：圣光环伤害 +50%；受到伤害后 3 秒内移动速度与每秒回复翻倍。");
+        body("术士：雷暴从单体改为范围伤害，雷暴基础攻击间隔 -0.75 秒。");
+
         section("操作");
         body("WASD / 方向键移动   ·   武器自动索敌开火，无需攻击键");
         body("升级时点击卡片选择（或按 1 / 2 / 3）；面板下方的「刷新」花金币整组重抽（快捷键 R）");
@@ -440,10 +451,10 @@ void SurvivorsLayer::RenderHelp()
         body("F4 打开调试面板（FPS / 实体数 / 伤害统计 / 快速验证按钮）");
 
         section("成长：经验、升级卡、武器");
-        body("击杀敌人当场获得经验，并掉落金币（走近自动吸取，22 秒后散掉）。金币用于刷新升级卡、刷新商店、买道具。");
+        body("击杀敌人当场获得经验，并掉落金币（走近自动吸取，金币**不会消失**，过关 / 通关时全地图的金币自动收进钱包）。金币用于刷新升级卡、刷新商店、买道具。");
         body("每次升级给三张属性卡三选一（选完回到战斗有 1 秒无敌）；刷新价 = 4 + 3 × 本次已刷新次数。武器与「立即回复」已不在升级卡池里。");
         body("属性卡九种：力量 / 急速 / 疾行 / 体魄 / 暴击 / 爆伤 / 回春 / 铁壁 / 破甲，没有层数上限。");
-        body("武器四把：月刃（直线穿透）/ 圣光环（近身脉冲）/ 回旋镰（往返切割）/ 雷暴（范围落雷），各自最高 5 级。");
+        body("武器四把：月刃（直线穿透，同一枚飞刃对同一敌人只结算一次）/ 圣光环（近身脉冲）/ 回旋镰（一把锁最近敌人、其余等分圆抛出，飞出后折返切割，去程与回程各结算一次）/ 雷暴（单体落雷：一道必打最近的敌人、一道优先打 Boss、其余随机，术士变范围伤害），各自最高 5 级。");
 
         section("道具");
         body("每关通关后开商店，一次摆 4 件道具（角色不卖），可以刷新（(6 + 4 × 本次已刷新次数) × 关卡系数）。");
@@ -469,9 +480,9 @@ void SurvivorsLayer::RenderHelp()
 
         section("敌人");
         body("蝙蝠（无防御）· 食尸鬼（防御 10）· 怨灵（24）· 石魔（50）· 血月使徒（100）。");
-        body("怪物数值随关卡递增：小怪血量每关 +30%、防御每关 +8%（线性）；伤害是二次曲线（1 + 0.05×(n−1)²），");
-        body("第 10 关的伤害约为第 1 关的 5 倍。经验与金币不随关卡变化。");
-        body("血月使徒的血量另算：第 5 关 2 倍、第 10 关 10 倍基础值（伤害与防御与小怪同一套）。");
+        body("怪物数值随关卡递增：小怪血量每关 +30%、防御每关 +20%（线性）；伤害是三次曲线（1 + (n−1)³/81），");
+        body("第 10 关的伤害约为第 1 关的 10 倍。经验与金币不随关卡变化。");
+        body("血月使徒的血量另算：第 5 关 2 倍、第 10 关 40 倍基础值（伤害与防御与小怪同一套）。");
         body("血月使徒会冲刺：靠近到一定距离后锁定方向、蓄力 1 秒，再沿这条直线高速冲一段；");
         body("蓄力时地上那道血线就是它的冲刺轨迹，横向拉开就能躲开（冲刺撞到围栏会提前停下）。");
 
@@ -676,10 +687,14 @@ void SurvivorsLayer::RenderHud()
     for (const DamageNumber& number : m_damageNumbers) {
         const float t = std::min(number.age / number.lifetime, 1.0f);
         const ImVec2 screen = WorldToScreen(number.position);
-        const int alpha = static_cast<int>(255.0f * (1.0f - t) * (1.0f - t));
+        // 前 55% 保持不透明，之后线性淡出：1 秒的停留里先「看清」再「消失」，
+        // 而不是从出生就开始衰减（那样刚跳出来就已经灰了）
+        const float fadeT = std::max(0.0f, (t - 0.55f) / 0.45f);
+        const int alpha = static_cast<int>(255.0f * (1.0f - fadeT));
         const ImU32 color = number.gold ? IM_COL32(255, 206, 92, alpha)
             : (number.crit ? IM_COL32(255, 224, 130, alpha) : IM_COL32(228, 236, 255, alpha));
-        const float fontSize = number.gold ? 15.0f : (number.crit ? 23.0f : 16.0f);
+        // 字号：金币最小、暴击最大（都上抬了一档，暗场里更容易看清）
+        const float fontSize = number.gold ? 19.0f : (number.crit ? 30.0f : 21.0f);
         char text[32];
         // 注意：格式串与实参类型必须一致——伤害是 float（%.0f），金币是 int（+%d），
         // 不能把两者塞进一个三元格式串，否则 %f 读不到 int 参数（可变参数类型不匹配，会打印 0）
@@ -959,7 +974,8 @@ void SurvivorsLayer::RenderWeaponPick()
     ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0.0f, 0.0f), display, IM_COL32(4, 4, 12, 205));
 
     const float cardWidth = 292.0f;
-    const float cardHeight = 326.0f;
+    // 卡里固定四行说明（玩法 / 主数值 / 攻击间隔，长的会折行）+ 底部按钮，326 会压到按钮，给到 352
+    const float cardHeight = 352.0f;
     const float gap = 20.0f;
     const float startY = display.y * 0.5f - cardHeight * 0.5f + 16.0f;
     const float totalWidth = cardWidth * static_cast<float>(WEAPON_COUNT) +
@@ -1280,12 +1296,13 @@ void SurvivorsLayer::RenderPause()
         std::snprintf(critText, sizeof(critText), "%.0f%%", CritChance() * 100.0f);
         std::snprintf(speedText, sizeof(speedText), "%.0f", MoveSpeed());
         std::snprintf(pickupText, sizeof(pickupText), "%.0f", PickupRadius());
-        std::snprintf(regenText, sizeof(regenText), "+%.1f / 秒", m_baseStats.regenPerSecond);
+        std::snprintf(regenText, sizeof(regenText), "+%.1f / 秒", RegenPerSecond());
         // 暴击伤害倍率：基础 2.0×，猎月瞳等道具会继续抬
         std::snprintf(critDamageText, sizeof(critDamageText), "%.1f 倍", CritMultiplier());
-        // 防御只有固定值，括号里换算成减伤率；穿甲也只有固定值（点数）
+        // 防御只有固定值，括号里换算成减伤率；穿甲也只有固定值（点数）。
+        // 这里显示的是**结算用**的防御（守夜人低血时翻倍，见 DefenseStat）
         std::snprintf(defenseText, sizeof(defenseText), "%.0f 点 · 减伤 %.0f%%",
-                      m_baseStats.defense, DefenseReduction(m_baseStats.defense) * 100.0f);
+                      DefenseStat(), DefenseReduction(DefenseStat()) * 100.0f);
         std::snprintf(penText, sizeof(penText), "%.0f 点", m_baseStats.penFlat);
         std::snprintf(coinText, sizeof(coinText), "%d 枚", m_coins);
 
