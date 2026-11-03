@@ -114,9 +114,9 @@ void SurvivorsLayer::DamagePlayer(float amount)
     // 玩家挨打：怪物没有穿甲，防御全额生效（守夜人低血时防御翻倍，见 DefenseStat）
     const float taken = ResolveDamage(amount, 0.0f, DefenseStat());
     m_playerHp -= taken;
-    // 修女：受伤后 3 秒内移速与每秒回复翻倍（受伤即触发，和这次实际掉了多少血无关）
+    // 修女：受伤后 3 秒内每秒回复与攻击速度翻倍（受伤即触发，和这次实际掉了多少血无关）
     if (m_character == ItemId::CharSister) {
-        m_characterHaste = SISTER_HASTE_SECONDS;
+        m_characterGrace = SISTER_GRACE_SECONDS;
     }
     m_hurtCooldown = 0.4f;   // 受击后的无敌窗口：短到能连续挨打，够到不会同一帧被贴脸的多只怪打死
     m_hurtFlash = 1.0f;

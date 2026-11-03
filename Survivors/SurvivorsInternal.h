@@ -107,6 +107,10 @@ namespace OiEngine::Survivors {
     }
     // 商店出货权重：按道具的固定稀有度，越稀有越难刷出来
     inline constexpr float ITEM_WEIGHT[4] = { 6.0f, 3.0f, 1.5f, 0.6f };
+    // 稀有度按关卡解锁：**第 3 关**才开始卖稀有档、**第 5 关**才开始卖史诗档
+    // （关卡号 = 开商店时的 m_stage，第一次开商店是第 2 关；更早的货架只有普通 / 高级）
+    constexpr int ITEM_RARE_UNLOCK_STAGE = 3;
+    constexpr int ITEM_EPIC_UNLOCK_STAGE = 5;
     // 原「独特类」道具（现归限制类，每件上限 1）的机制数值
     constexpr float THORN_RADIUS = 240.0f;       // 荆棘之甲：反弹给这个半径内的敌人
     constexpr float REVIVE_HP_FRACTION = 0.60f;  // 不朽之心：复活时回多少血
@@ -208,18 +212,18 @@ namespace OiEngine::Survivors {
     inline const glm::vec4 C_THORN(0.92f, 0.46f, 0.72f, 1.0f);   // 荆棘之甲反弹的环
 
     // ---- 角色特性（四个角色各一条被动，读数与文案都只认这里）----
-    // 守夜人：每点防御 +0.5% 伤害；生命 ≤50% 进入「守夜」状态 —— 防御与每秒回复翻倍
-    constexpr float WATCHMAN_DEFENSE_DAMAGE_STEP = 0.005f;   // 每点防御 → +0.5% 伤害
+    // 守夜人：每点防御 +1% 伤害；生命 ≤50% 进入「守夜」状态 —— 防御与每秒回复翻倍
+    constexpr float WATCHMAN_DEFENSE_DAMAGE_STEP = 0.01f;    // 每点防御 → +1% 伤害
     constexpr float WATCHMAN_LOW_HP_THRESHOLD = 0.50f;       // 生命比例到这个值以下算低血
     constexpr float WATCHMAN_LOW_HP_DEFENSE_MUL = 2.0f;      // 低血时防御 ×2
     constexpr float WATCHMAN_LOW_HP_REGEN_MUL = 2.0f;        // 低血时每秒回复 ×2
-    // 猎手：月刃 / 回旋镰伤害 +20%；月刃的「穿透」改成弹射（命中后飞向最近的未命中敌人）
-    constexpr float HUNTER_WEAPON_DAMAGE_MUL = 1.20f;
+    // 猎手：月刃 / 回旋镰伤害 +40%；月刃的「穿透」改成弹射（命中后飞向最近的未命中敌人）
+    constexpr float HUNTER_WEAPON_DAMAGE_MUL = 1.40f;
     constexpr float HUNTER_BLADE_BOUNCE_RANGE = 560.0f;      // 弹射索敌半径（从弹丸当前位置算）
-    // 修女：圣光环伤害 +50%；受伤后 3 秒内移动速度与每秒回复**翻倍**
+    // 修女：圣光环伤害 +50%；受伤后 3 秒内**每秒回复与攻击速度**翻倍（移速不再加速）
     constexpr float SISTER_AURA_DAMAGE_MUL = 1.50f;
-    constexpr float SISTER_HASTE_MUL = 2.0f;
-    constexpr float SISTER_HASTE_SECONDS = 3.0f;
+    constexpr float SISTER_GRACE_MUL = 2.0f;                 // 受伤后 3 秒：回复 / 攻速 ×2
+    constexpr float SISTER_GRACE_SECONDS = 3.0f;
     // 术士：雷暴变成范围伤害，基础攻击间隔 -0.75 秒（保留一个下限，别被攻速堆成每帧一雷）
     constexpr float WARLOCK_STORM_COOLDOWN_CUT = 0.75f;
     constexpr float STORM_MIN_COOLDOWN = 0.20f;

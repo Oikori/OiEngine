@@ -82,11 +82,11 @@ const std::unordered_map<SurvivorsLayer::ItemId, SurvivorsLayer::ItemDef> Surviv
     { ItemId::BerserkSigil,   { "狂战徽记",   ItemCategory::Limited,   Rarity::Epic,     1, { 0.30f, -8.0f } } }, // 攻速 / 防御（负面）
     { ItemId::BloodPact,      { "血契",       ItemCategory::Limited,   Rarity::Epic,     1, { 30.0f, 0.40f } } },  // 生命上限 / 击杀回血
     // 角色类：固定史诗，开局选择（gain 是开局的初始属性）
-    { ItemId::CharWatchman,   { "守夜人",     ItemCategory::Character, Rarity::Epic,     1, { 24.0f, 20.0f } } },  // 生命上限 / 防御
+    { ItemId::CharWatchman,   { "守夜人",     ItemCategory::Character, Rarity::Epic,     1, { 24.0f, 30.0f } } },  // 生命上限 / 防御
     { ItemId::CharHunter,     { "猎手",       ItemCategory::Character, Rarity::Epic,     1,
                                 { BARE_MOVE_SPEED * 0.10f, 0.08f } } },                                      // 移速 / 暴击率
     { ItemId::CharSister,     { "修女",       ItemCategory::Character, Rarity::Epic,     1, { 0.70f, 10.0f } } },  // 每秒回复 / 生命上限
-    { ItemId::CharWarlock,    { "术士",       ItemCategory::Character, Rarity::Epic,     1, { 0.25f } } },   // 伤害加成
+    { ItemId::CharWarlock,    { "术士",       ItemCategory::Character, Rarity::Epic,     1, { 0.40f } } },   // 伤害加成
 };
 
 // ============================ 道具目录查询 ============================
@@ -281,7 +281,7 @@ void SurvivorsLayer::DescribeItem(ItemId id, std::string& title, std::string& de
             break;
         case ItemId::CharWatchman:
             description = std::format("生命上限 +{:.0f} · 防御 +{:.0f}。\n"
-                                      "特性：每 1 点防御 +{:.1f}% 伤害；生命 ≤{:.0f}% 时防御与回复翻倍。",
+                                      "特性：每 1 点防御 +{:.0f}% 伤害；生命 ≤{:.0f}% 时防御与回复翻倍。",
                                       g[0], g[1], WATCHMAN_DEFENSE_DAMAGE_STEP * 100.0f,
                                       WATCHMAN_LOW_HP_THRESHOLD * 100.0f);
             break;
@@ -292,9 +292,9 @@ void SurvivorsLayer::DescribeItem(ItemId id, std::string& title, std::string& de
             break;
         case ItemId::CharSister:
             description = std::format("每秒回复 +{:.2f} · 生命上限 +{:.0f}。\n"
-                                      "特性：圣光环伤害 +{:.0f}%；受伤后 {:.0f} 秒内移速与回复翻倍。",
+                                      "特性：圣光环伤害 +{:.0f}%；受伤后 {:.0f} 秒内回复与攻击速度翻倍。",
                                       g[0], g[1], (SISTER_AURA_DAMAGE_MUL - 1.0f) * 100.0f,
-                                      SISTER_HASTE_SECONDS);
+                                      SISTER_GRACE_SECONDS);
             break;
         case ItemId::CharWarlock:
             description = std::format("全部伤害 +{:.0f}%。\n"
@@ -531,6 +531,19 @@ int SurvivorsLayer::ShopPrice(Rarity rarity) const
     return static_cast<int>(std::lround(static_cast<float>(base) * ShopPriceScale(m_stage)));
 }
 
+// 稀有档第 3 关、史诗档第 5 关才开始进货：更早的货架只有普通 / 高级
+bool SurvivorsLayer::ShopSellsRarity(Rarity rarity) const
+{
+    switch (rarity) {
+        case Rarity::Epic:
+            return m_stage >= ITEM_EPIC_UNLOCK_STAGE;
+        case Rarity::Rare:
+            return m_stage >= ITEM_RARE_UNLOCK_STAGE;
+        default:
+            return true;
+    }
+}
+
 int SurvivorsLayer::ShopRerollCost() const
 {
     // (6 + 4 × 本次已刷新次数) × 关卡系数，系数 = 1 + 0.4 × (已过关数 − 1)：
@@ -559,11 +572,12 @@ void SurvivorsLayer::OpenShop()
 
 void SurvivorsLayer::RollShopOffers(const std::vector<ShopOffer>& avoid)
 {
-    // 候选池：所有非角色、且没到持有上限的道具
+    // 候选池：所有非角色、没到持有上限、且当前关卡已解锁该稀有度的道具
+    // （稀有档第 3 关起、史诗档第 5 关起才进货，见 ShopSellsRarity）
     std::vector<ItemId> pool;
     for (int i = 0; i < static_cast<int>(ItemId::Count); ++i) {
         const ItemId id = static_cast<ItemId>(i);
-        if (CanAcquireItem(id)) {
+        if (CanAcquireItem(id) && ShopSellsRarity(ItemRarity(id))) {
             pool.push_back(id);
         }
     }

@@ -240,7 +240,7 @@ void SurvivorsLayer::ResetRun()
     RecalculateStats();
     m_playerHp = m_playerMaxHp;
     m_hurtCooldown = 2.0f;      // 开局短暂无敌，避免刚点开始就被贴脸的初始蝙蝠打一下
-    m_characterHaste = 0.0f;    // 修女受伤加速的计时也不能带进新一局
+    m_characterGrace = 0.0f;    // 修女受伤后「回复 + 攻速翻倍」的计时也不能带进新一局
     m_walkPhase = 0.0f;
     m_hurtFlash = 0.0f;
     m_playerAlive = true;
@@ -304,7 +304,7 @@ void SurvivorsLayer::RecalculateStats()
 
 float SurvivorsLayer::DamageMul() const
 {
-    // 守夜人：每点防御 +0.5% 伤害。低血时防御翻倍，这条收益也跟着翻倍（「守夜」越硬越疼）
+    // 守夜人：每点防御 +1% 伤害。低血时防御翻倍，这条收益也跟着翻倍（「守夜」越硬越疼）
     if (m_character == ItemId::CharWatchman) {
         return m_baseStats.damageMul * (1.0f + WATCHMAN_DEFENSE_DAMAGE_STEP * DefenseStat());
     }
@@ -313,6 +313,10 @@ float SurvivorsLayer::DamageMul() const
 
 float SurvivorsLayer::AttackSpeedMul() const
 {
+    // 修女：受伤后 3 秒内攻速翻倍（乘在最终攻速上；移速不再受影响）
+    if (m_character == ItemId::CharSister && m_characterGrace > 0.0f) {
+        return m_baseStats.attackSpeedMul * SISTER_GRACE_MUL;
+    }
     return m_baseStats.attackSpeedMul;
 }
 
@@ -328,12 +332,8 @@ float SurvivorsLayer::CritMultiplier() const
 
 float SurvivorsLayer::MoveSpeed() const
 {
-    // 修女：受伤后 3 秒内移速**翻倍**（乘在最终移速上）
-    const float speed = m_baseStats.moveSpeed;
-    if (m_character == ItemId::CharSister && m_characterHaste > 0.0f) {
-        return speed * SISTER_HASTE_MUL;
-    }
-    return speed;
+    // 移速：修女的受伤窗口不再加速（改为回复 + 攻速，见 AttackSpeedMul）
+    return m_baseStats.moveSpeed;
 }
 
 float SurvivorsLayer::PickupRadius() const
@@ -369,9 +369,9 @@ float SurvivorsLayer::RegenPerSecond() const
     if (m_character == ItemId::CharWatchman && LowHp()) {
         regen *= WATCHMAN_LOW_HP_REGEN_MUL;
     }
-    // 修女：受伤后的 3 秒里连回复也翻倍（和移速同一个窗口，m_characterHaste）
-    if (m_character == ItemId::CharSister && m_characterHaste > 0.0f) {
-        regen *= SISTER_HASTE_MUL;
+    // 修女：受伤后的 3 秒里连回复也翻倍（和攻速同一个窗口，m_characterGrace）
+    if (m_character == ItemId::CharSister && m_characterGrace > 0.0f) {
+        regen *= SISTER_GRACE_MUL;
     }
     return regen;
 }
@@ -620,7 +620,7 @@ void SurvivorsLayer::UpdatePlayer(float deltaTime)
     m_walkPhase += deltaTime * (2.0f + Length(m_playerVelocity) * 0.022f);
 
     m_hurtCooldown = std::max(0.0f, m_hurtCooldown - deltaTime);
-    m_characterHaste = std::max(0.0f, m_characterHaste - deltaTime);   // 修女受伤后的加速窗口
+    m_characterGrace = std::max(0.0f, m_characterGrace - deltaTime);   // 修女受伤后的「回复 + 攻速」窗口
 
     const float regen = RegenPerSecond();
     if (regen > 0.0f && m_playerHp < m_playerMaxHp) {

@@ -391,6 +391,7 @@ namespace OiEngine::Survivors {
         void OpenShop();
         void RollShopOffers(const std::vector<ShopOffer>& avoid = {});
         int ShopPrice(Rarity rarity) const;
+        bool ShopSellsRarity(Rarity rarity) const;   // 该稀有度在当前关卡是否已解锁（稀有 3 关 / 史诗 5 关）
         int ShopRerollCost() const;
         void RerollShop();
         bool BuyShopOffer(int slot);
@@ -516,7 +517,7 @@ namespace OiEngine::Survivors {
         // ---- 角色特性（守夜人 / 猎手 / 修女 / 术士，数值常量在 SurvivorsInternal.h）----
         float WeaponDamageMul(int weapon) const;   // 角色专属的武器伤害倍率（猎手：月刃 / 回旋镰，修女：圣光环）
         float DefenseStat() const;                 // 结算用的防御（守夜人低血 ×2）
-        float RegenPerSecond() const;              // 结算用的每秒回复（守夜人低血 ×2）
+        float RegenPerSecond() const;              // 结算用的每秒回复（守夜人低血 ×2，修女受伤窗口 ×2）
         float StormInterval(int level) const;       // 雷暴的基础攻击间隔（术士 -0.75 秒）
         bool LowHp() const;                        // 生命 ≤ WATCHMAN_LOW_HP_THRESHOLD
         static int ExpNeeded(int level);
@@ -550,7 +551,7 @@ namespace OiEngine::Survivors {
         float m_playerHp = 20.0f;
         float m_playerMaxHp = 20.0f;
         float m_hurtCooldown = 0.0f;
-        float m_characterHaste = 0.0f;   // 修女：受伤后的临时移速剩余时间（秒）
+        float m_characterGrace = 0.0f;   // 修女：受伤后「回复 + 攻速翻倍」的剩余时间（秒）
         float m_walkPhase = 0.0f;
         float m_hurtFlash = 0.0f;
         bool m_playerAlive = true;
